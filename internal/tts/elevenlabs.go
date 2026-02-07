@@ -8,14 +8,16 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 const (
-	elevenLabsDefaultVoiceAlex = "JBFqnCBsd6RMkjVDRZzb" // George
-	elevenLabsDefaultVoiceSam  = "EXAVITQu4vr4xnSDxMaL" // Sarah
+	elevenLabsDefaultVoiceAlex = "xuqUPASjAdyZvCNoMTEj"  // Chad
+	elevenLabsDefaultVoiceSam  = "56bWURjYFHyYyVf490Dp" // Emma
 
 	elevenLabsBaseURL      = "https://api.elevenlabs.io/v1/text-to-speech"
+	elevenLabsVoicesURL    = "https://api.elevenlabs.io/v1/voices"
 	elevenLabsModelID      = "eleven_flash_v2_5"
 	elevenLabsOutputFormat = "mp3_44100_192"
 )
@@ -52,8 +54,8 @@ func NewElevenLabsProvider(voiceAlex, voiceSam string) *ElevenLabsProvider {
 	}
 	return &ElevenLabsProvider{
 		voices: VoiceMap{
-			Alex: Voice{ID: alexID, Name: "George"},
-			Sam:  Voice{ID: samID, Name: "Sarah"},
+			Alex: Voice{ID: alexID, Name: "Chad"},
+			Sam:  Voice{ID: samID, Name: "Emma"},
 		},
 		apiKey:     os.Getenv("ELEVENLABS_API_KEY"),
 		httpClient: &http.Client{Timeout: 60 * time.Second},
@@ -64,8 +66,8 @@ func (p *ElevenLabsProvider) Name() string { return "elevenlabs" }
 
 func (p *ElevenLabsProvider) DefaultVoices() VoiceMap {
 	return VoiceMap{
-		Alex: Voice{ID: elevenLabsDefaultVoiceAlex, Name: "George"},
-		Sam:  Voice{ID: elevenLabsDefaultVoiceSam, Name: "Sarah"},
+		Alex: Voice{ID: elevenLabsDefaultVoiceAlex, Name: "Chad"},
+		Sam:  Voice{ID: elevenLabsDefaultVoiceSam, Name: "Emma"},
 	}
 }
 
@@ -127,10 +129,97 @@ func (p *ElevenLabsProvider) Synthesize(ctx context.Context, text string, voice 
 
 func (p *ElevenLabsProvider) Close() error { return nil }
 
+// elevenLabsVoicesResponse is the API response from GET /v1/voices.
+type elevenLabsVoicesResponse struct {
+	Voices []elevenLabsVoice `json:"voices"`
+}
+
+type elevenLabsVoice struct {
+	VoiceID     string            `json:"voice_id"`
+	Name        string            `json:"name"`
+	Category    string            `json:"category"`
+	Description string            `json:"description"`
+	Labels      map[string]string `json:"labels"`
+}
+
+// fetchElevenLabsVoices calls the ElevenLabs API to get the user's voice library.
+func fetchElevenLabsVoices(apiKey string) ([]VoiceInfo, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequest(http.MethodGet, elevenLabsVoicesURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("xi-api-key", apiKey)
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch voices: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("ElevenLabs voices API error (status %d): %s", res.StatusCode, string(body))
+	}
+
+	var resp elevenLabsVoicesResponse
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	voices := make([]VoiceInfo, 0, len(resp.Voices))
+	for _, v := range resp.Voices {
+		info := VoiceInfo{
+			ID:     v.VoiceID,
+			Name:   v.Name,
+			Gender: v.Labels["gender"],
+		}
+
+		// Build description from labels and top-level description.
+		var parts []string
+		if accent := v.Labels["accent"]; accent != "" {
+			parts = append(parts, accent)
+		}
+		if desc := v.Labels["description"]; desc != "" {
+			parts = append(parts, desc)
+		}
+		if v.Category != "" {
+			parts = append(parts, v.Category)
+		}
+		if v.Description != "" {
+			parts = append(parts, v.Description)
+		}
+		info.Description = strings.Join(parts, ", ")
+
+		// Tag default voices.
+		switch v.VoiceID {
+		case elevenLabsDefaultVoiceAlex:
+			info.DefaultFor = "Alex"
+		case elevenLabsDefaultVoiceSam:
+			info.DefaultFor = "Sam"
+		}
+
+		voices = append(voices, info)
+	}
+
+	return voices, nil
+}
+
 func elevenLabsAvailableVoices() []VoiceInfo {
+	// Try live fetch if API key is available.
+	if apiKey := os.Getenv("ELEVENLABS_API_KEY"); apiKey != "" {
+		if voices, err := fetchElevenLabsVoices(apiKey); err == nil {
+			return voices
+		}
+	}
+
+	// Fallback to hardcoded list.
 	return []VoiceInfo{
-		{ID: "JBFqnCBsd6RMkjVDRZzb", Name: "George", Gender: "male", Description: "Warm British male, clear and authoritative", DefaultFor: "Alex"},
-		{ID: "EXAVITQu4vr4xnSDxMaL", Name: "Sarah", Gender: "female", Description: "Soft American female, friendly and engaging", DefaultFor: "Sam"},
+		{ID: "xuqUPASjAdyZvCNoMTEj", Name: "Chad", Gender: "male", Description: "Cloned voice", DefaultFor: "Alex"},
+		{ID: "56bWURjYFHyYyVf490Dp", Name: "Emma", Gender: "female", Description: "Warm Australian female, engaging and conversational", DefaultFor: "Sam"},
+		{ID: "JBFqnCBsd6RMkjVDRZzb", Name: "George", Gender: "male", Description: "Warm British male, clear and authoritative"},
+		{ID: "EXAVITQu4vr4xnSDxMaL", Name: "Sarah", Gender: "female", Description: "Soft American female, friendly and engaging"},
 		{ID: "pNInz6obpgDQGcFmaJgB", Name: "Adam", Gender: "male", Description: "Deep American male, confident narrator"},
 		{ID: "ErXwobaYiN019PkySvjV", Name: "Antoni", Gender: "male", Description: "Young American male, conversational"},
 		{ID: "MF3mGyEYCl7XYWbV9V6O", Name: "Elli", Gender: "female", Description: "Young American female, bright and expressive"},
