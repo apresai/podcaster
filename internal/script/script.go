@@ -24,6 +24,7 @@ type GenerateOptions struct {
 	Duration string
 	Styles   []string
 	Model    string
+	Voices   int // 1-3, defaults to 2 if 0
 }
 
 type Generator interface {
@@ -65,6 +66,18 @@ func ModelDisplayName(model string) string {
 		return name
 	}
 	return model
+}
+
+// buildPersonaSlice returns the personas for the given voice count.
+func buildPersonaSlice(voices int) []Persona {
+	switch voices {
+	case 1:
+		return []Persona{DefaultAlexPersona}
+	case 3:
+		return []Persona{DefaultAlexPersona, DefaultSamPersona, DefaultJordanPersona}
+	default:
+		return []Persona{DefaultAlexPersona, DefaultSamPersona}
+	}
 }
 
 func LoadScript(path string) (*Script, error) {

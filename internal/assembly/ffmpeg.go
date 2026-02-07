@@ -9,6 +9,16 @@ import (
 	"strings"
 )
 
+// Audio quality constants for consistent output across all FFmpeg operations.
+const (
+	AudioBitrate    = "192k"
+	AudioSampleRate = "44100"
+	AudioChannels   = "2"
+	AudioCodec      = "libmp3lame"
+	AudioQuality    = "0" // LAME quality (0 = best)
+	AudioResampler  = "aresample=resampler=soxr"
+)
+
 type Assembler interface {
 	Assemble(ctx context.Context, segments []string, tmpDir string, output string) error
 }
@@ -47,18 +57,19 @@ func (a *FFmpegAssembler) Assemble(ctx context.Context, segments []string, tmpDi
 func generateSilence(ctx context.Context, output string) error {
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-f", "lavfi",
-		"-i", "anullsrc=r=44100:cl=stereo",
+		"-i", fmt.Sprintf("anullsrc=r=%s:cl=stereo", AudioSampleRate),
 		"-t", "0.2",
-		"-c:a", "libmp3lame",
-		"-b:a", "192k",
+		"-c:a", AudioCodec,
+		"-b:a", AudioBitrate,
 		"-y",
 		output,
 	)
-	cmd.Stderr = nil // Suppress FFmpeg's verbose stderr
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	cmd.Stdout = nil
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg silence generation failed: %w", err)
+		return fmt.Errorf("ffmpeg silence generation failed: %w\n%s", err, stderr.String())
 	}
 	return nil
 }
@@ -94,24 +105,24 @@ func ConvertToMP3(ctx context.Context, input string, format string, output strin
 			"-ar", "24000",
 			"-ac", "1",
 			"-i", input,
-			"-af", "aresample=resampler=soxr",
-			"-c:a", "libmp3lame",
-			"-b:a", "192k",
-			"-q:a", "0",
-			"-ar", "44100",
-			"-ac", "2",
+			"-af", AudioResampler,
+			"-c:a", AudioCodec,
+			"-b:a", AudioBitrate,
+			"-q:a", AudioQuality,
+			"-ar", AudioSampleRate,
+			"-ac", AudioChannels,
 			"-y",
 			output,
 		}
 	case "wav":
 		args = []string{
 			"-i", input,
-			"-af", "aresample=resampler=soxr",
-			"-c:a", "libmp3lame",
-			"-b:a", "192k",
-			"-q:a", "0",
-			"-ar", "44100",
-			"-ac", "2",
+			"-af", AudioResampler,
+			"-c:a", AudioCodec,
+			"-b:a", AudioBitrate,
+			"-q:a", AudioQuality,
+			"-ar", AudioSampleRate,
+			"-ac", AudioChannels,
 			"-y",
 			output,
 		}
@@ -120,11 +131,12 @@ func ConvertToMP3(ctx context.Context, input string, format string, output strin
 	}
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	cmd.Stderr = nil
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	cmd.Stdout = nil
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg conversion (%s → mp3) failed: %w", format, err)
+		return fmt.Errorf("ffmpeg conversion (%s → mp3) failed: %w\n%s", format, err, stderr.String())
 	}
 	return nil
 }
@@ -134,15 +146,21 @@ func runFFmpegConcat(ctx context.Context, listPath string, output string) error 
 		"-f", "concat",
 		"-safe", "0",
 		"-i", listPath,
-		"-c", "copy",
+		"-af", AudioResampler,
+		"-c:a", AudioCodec,
+		"-b:a", AudioBitrate,
+		"-q:a", AudioQuality,
+		"-ar", AudioSampleRate,
+		"-ac", AudioChannels,
 		"-y",
 		output,
 	)
-	cmd.Stderr = nil
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	cmd.Stdout = nil
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg concat failed: %w", err)
+		return fmt.Errorf("ffmpeg concat failed: %w\n%s", err, stderr.String())
 	}
 
 	// Verify output exists and has non-zero size

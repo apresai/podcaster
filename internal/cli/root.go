@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/apresai/podcaster/internal/pipeline"
@@ -16,6 +17,10 @@ var Version = "dev"
 var rootCmd = &cobra.Command{
 	Use:   "podcaster",
 	Short: "Convert written content into podcast-style audio conversations",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		flagTUI = true
+		return runGenerate(cmd, args)
+	},
 }
 
 var versionCmd = &cobra.Command{
@@ -34,49 +39,49 @@ var generateCmd = &cobra.Command{
 
 var listVoicesCmd = &cobra.Command{
 	Use:   "list-voices",
-	Short: "List available voices for a TTS provider",
+	Short: "List available voices for all TTS providers",
 	RunE:  runListVoices,
 }
 
-var flagListVoicesTTS string
-
 var (
-	flagInput       string
-	flagOutput      string
-	flagTopic       string
-	flagTone        string
-	flagDuration    string
-	flagStyle       string
-	flagVoiceAlex   string
-	flagVoiceSam    string
-	flagScriptOnly  bool
-	flagFromScript  string
-	flagVerbose     bool
-	flagTTS         string
-	flagModel       string
-	flagInteractive bool
+	flagInput      string
+	flagOutput     string
+	flagTopic      string
+	flagTone       string
+	flagDuration   string
+	flagStyle      string
+	flagVoice1     string
+	flagVoice2     string
+	flagVoice3     string
+	flagVoices     int
+	flagScriptOnly bool
+	flagFromScript string
+	flagVerbose    bool
+	flagTTS        string
+	flagModel      string
+	flagTUI        bool
 )
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(listVoicesCmd)
-	listVoicesCmd.Flags().StringVar(&flagListVoicesTTS, "tts", "gemini", "TTS provider: elevenlabs, google, or gemini (default gemini)")
-
 	generateCmd.Flags().StringVarP(&flagInput, "input", "i", "", "Source content (URL, PDF path, or text file path)")
-	generateCmd.Flags().StringVarP(&flagOutput, "output", "o", "", "Output file path (MP3 or JSON with --script-only)")
-	generateCmd.Flags().StringVar(&flagTopic, "topic", "", "Focus the conversation on a specific topic")
-	generateCmd.Flags().StringVar(&flagTone, "tone", "casual", "Conversation tone: casual, technical, educational")
-	generateCmd.Flags().StringVar(&flagDuration, "duration", "standard", "Target duration: short (~30 segs), standard (~50), long (~75), deep (~200)")
-	generateCmd.Flags().StringVar(&flagStyle, "style", "", "Conversation styles (comma-separated): humor, wow, serious, debate, storytelling")
-	generateCmd.Flags().StringVar(&flagVoiceAlex, "voice-alex", "", "Voice ID for Alex (provider-specific)")
-	generateCmd.Flags().StringVar(&flagVoiceSam, "voice-sam", "", "Voice ID for Sam (provider-specific)")
-	generateCmd.Flags().BoolVar(&flagScriptOnly, "script-only", false, "Output script JSON only, skip TTS and assembly")
-	generateCmd.Flags().StringVar(&flagFromScript, "from-script", "", "Generate audio from an existing script JSON file")
-	generateCmd.Flags().BoolVar(&flagVerbose, "verbose", false, "Enable detailed logging")
-	generateCmd.Flags().BoolVar(&flagInteractive, "interactive", false, "Interactive setup wizard for generation options")
-	generateCmd.Flags().StringVar(&flagTTS, "tts", "gemini", "TTS provider: elevenlabs, google, or gemini (default gemini)")
-	generateCmd.Flags().StringVar(&flagModel, "model", "haiku", "Script generation model: haiku, sonnet, gemini-flash, gemini-pro")
+	generateCmd.Flags().StringVarP(&flagOutput, "output", "o", "", "Output file path (MP3)")
+	generateCmd.Flags().StringVarP(&flagTopic, "topic", "p", "", "Focus the conversation on a specific topic")
+	generateCmd.Flags().StringVarP(&flagTone, "tone", "n", "casual", "Conversation tone: casual, technical, educational")
+	generateCmd.Flags().StringVarP(&flagDuration, "duration", "d", "standard", "Target duration: short (~30 segs), standard (~50), long (~75), deep (~200)")
+	generateCmd.Flags().StringVarP(&flagStyle, "style", "s", "", "Conversation styles (comma-separated): humor, wow, serious, debate, storytelling")
+	generateCmd.Flags().StringVarP(&flagVoice1, "voice1", "1", "", "Voice for host 1 / Alex (provider:voiceID or plain voiceID)")
+	generateCmd.Flags().StringVarP(&flagVoice2, "voice2", "2", "", "Voice for host 2 / Sam (provider:voiceID or plain voiceID)")
+	generateCmd.Flags().StringVarP(&flagVoice3, "voice3", "3", "", "Voice for host 3 / Jordan (provider:voiceID or plain voiceID)")
+	generateCmd.Flags().IntVarP(&flagVoices, "voices", "V", 2, "Number of podcast hosts (1-3)")
+	generateCmd.Flags().BoolVarP(&flagScriptOnly, "script-only", "S", false, "Output script JSON only, skip TTS and assembly")
+	generateCmd.Flags().StringVarP(&flagFromScript, "from-script", "f", "", "Generate audio from an existing script JSON file")
+	generateCmd.Flags().BoolVarP(&flagVerbose, "verbose", "v", false, "Enable detailed logging")
+	generateCmd.Flags().BoolVarP(&flagTUI, "tui", "t", false, "Interactive setup wizard for generation options")
+	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "TTS provider: elevenlabs, google, or gemini (default gemini)")
+	generateCmd.Flags().StringVarP(&flagModel, "model", "m", "haiku", "Script generation model: haiku, sonnet, gemini-flash, gemini-pro")
 }
 
 func Execute() error {
@@ -85,7 +90,7 @@ func Execute() error {
 
 func runGenerate(cmd *cobra.Command, args []string) error {
 	// Run interactive setup if requested
-	if flagInteractive {
+	if flagTUI {
 		if err := runInteractiveSetup(); err != nil {
 			return err
 		}
@@ -93,7 +98,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	// Validate flags
 	if flagFromScript == "" && flagInput == "" {
-		return fmt.Errorf("either --input (-i) or --from-script is required")
+		return fmt.Errorf("either --input (-i) or --from-script (-f) is required")
 	}
 	if flagFromScript != "" && flagInput != "" {
 		return fmt.Errorf("--input and --from-script are mutually exclusive")
@@ -115,6 +120,11 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 	if flagDuration == "medium" {
 		flagDuration = "standard"
+	}
+
+	// Validate voices count
+	if flagVoices < 1 || flagVoices > 3 {
+		return fmt.Errorf("invalid voices count %d: must be 1, 2, or 3", flagVoices)
 	}
 
 	// Validate and parse styles
@@ -142,8 +152,28 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid model %q: must be haiku, sonnet, gemini-flash, or gemini-pro", flagModel)
 	}
 
-	// Check API keys
-	if err := checkAPIKeys(flagTTS, flagModel); err != nil {
+	// Parse provider:voiceID syntax for each voice flag
+	v1Provider, v1ID := tts.ParseVoiceSpec(flagVoice1)
+	v2Provider, v2ID := tts.ParseVoiceSpec(flagVoice2)
+	v3Provider, v3ID := tts.ParseVoiceSpec(flagVoice3)
+
+	// Default to --tts provider when no prefix
+	if v1Provider == "" {
+		v1Provider = flagTTS
+	}
+	if v2Provider == "" {
+		v2Provider = flagTTS
+	}
+	if v3Provider == "" {
+		v3Provider = flagTTS
+	}
+
+	// Check API keys for all providers in use
+	ttsProviders := []string{v1Provider, v2Provider}
+	if flagVoices >= 3 {
+		ttsProviders = append(ttsProviders, v3Provider)
+	}
+	if err := checkAPIKeys(ttsProviders, flagModel); err != nil {
 		return err
 	}
 
@@ -154,77 +184,111 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Route output to podcaster-output/episodes/
+	outputPath := filepath.Join(pipeline.OutputBaseDir, "episodes", filepath.Base(flagOutput))
+
 	opts := pipeline.Options{
-		Input:       flagInput,
-		Output:      flagOutput,
-		Topic:       flagTopic,
-		Tone:        flagTone,
-		Duration:    flagDuration,
-		Styles:      styles,
-		VoiceAlex:   flagVoiceAlex,
-		VoiceSam:    flagVoiceSam,
-		ScriptOnly:  flagScriptOnly,
-		FromScript:  flagFromScript,
-		Verbose:     flagVerbose,
-		TTSProvider: flagTTS,
-		Model:       flagModel,
+		Input:          flagInput,
+		Output:         outputPath,
+		Topic:          flagTopic,
+		Tone:           flagTone,
+		Duration:       flagDuration,
+		Styles:         styles,
+		Voice1:         v1ID,
+		Voice1Provider: v1Provider,
+		Voice2:         v2ID,
+		Voice2Provider: v2Provider,
+		Voice3:         v3ID,
+		Voice3Provider: v3Provider,
+		Voices:         flagVoices,
+		ScriptOnly:     flagScriptOnly,
+		FromScript:     flagFromScript,
+		Verbose:        flagVerbose,
+		DefaultTTS:     flagTTS,
+		Model:          flagModel,
+		LogFile:        pipeline.LogFilePath(flagOutput),
 	}
 
 	return pipeline.Run(cmd.Context(), opts)
 }
 
 func runListVoices(cmd *cobra.Command, args []string) error {
-	voices, err := tts.AvailableVoices(flagListVoicesTTS)
-	if err != nil {
-		return err
+	providers := []struct {
+		name  string
+		label string
+	}{
+		{"gemini", "GEMINI"},
+		{"elevenlabs", "ELEVENLABS"},
+		{"google", "GOOGLE CLOUD TTS"},
 	}
 
-	fmt.Printf("\nAvailable voices for %s:\n\n", flagListVoicesTTS)
-	fmt.Printf("  %-28s %-12s %-8s %s\n", "ID", "NAME", "GENDER", "DESCRIPTION")
-	fmt.Printf("  %-28s %-12s %-8s %s\n", "---", "----", "------", "-----------")
-	for _, v := range voices {
-		def := ""
-		if v.DefaultFor != "" {
-			def = fmt.Sprintf(" (default %s)", v.DefaultFor)
+	fmt.Println("\nAvailable voices:")
+
+	for _, p := range providers {
+		voices, err := tts.AvailableVoices(p.name)
+		if err != nil {
+			return err
 		}
-		fmt.Printf("  %-28s %-12s %-8s %s%s\n", v.ID, v.Name, v.Gender, v.Description, def)
+
+		fmt.Printf("\n  %s\n", p.label)
+		fmt.Printf("  %s\n", strings.Repeat("\u2500", 50))
+		fmt.Printf("  %-28s %-12s %-8s %s\n", "ID", "NAME", "GENDER", "DESCRIPTION")
+		for _, v := range voices {
+			def := ""
+			if v.DefaultFor != "" {
+				def = fmt.Sprintf(" (default %s)", v.DefaultFor)
+			}
+			fmt.Printf("  %-28s %-12s %-8s %s%s\n", v.ID, v.Name, v.Gender, v.Description, def)
+		}
 	}
 	fmt.Println()
 	return nil
 }
 
-func checkAPIKeys(ttsProvider, model string) error {
-	var missing []string
+func checkAPIKeys(ttsProviders []string, model string) error {
+	needed := map[string]bool{}
 
 	if flagFromScript == "" {
 		switch {
 		case model == "haiku" || model == "sonnet":
 			if os.Getenv("ANTHROPIC_API_KEY") == "" {
-				missing = append(missing, "ANTHROPIC_API_KEY")
+				needed["ANTHROPIC_API_KEY"] = true
 			}
 		case model == "gemini-flash" || model == "gemini-pro":
 			if os.Getenv("GEMINI_API_KEY") == "" {
-				missing = append(missing, "GEMINI_API_KEY")
+				needed["GEMINI_API_KEY"] = true
 			}
 		}
 	}
 
 	if !flagScriptOnly {
-		switch ttsProvider {
-		case "elevenlabs":
-			if os.Getenv("ELEVENLABS_API_KEY") == "" {
-				missing = append(missing, "ELEVENLABS_API_KEY")
+		// Deduplicate providers
+		seen := map[string]bool{}
+		for _, p := range ttsProviders {
+			if seen[p] {
+				continue
 			}
-		case "gemini":
-			if os.Getenv("GEMINI_API_KEY") == "" {
-				missing = append(missing, "GEMINI_API_KEY")
+			seen[p] = true
+			switch p {
+			case "elevenlabs":
+				if os.Getenv("ELEVENLABS_API_KEY") == "" {
+					needed["ELEVENLABS_API_KEY"] = true
+				}
+			case "gemini":
+				if os.Getenv("GEMINI_API_KEY") == "" {
+					needed["GEMINI_API_KEY"] = true
+				}
+			case "google":
+				// Uses Application Default Credentials
 			}
-		case "google":
-			// Uses Application Default Credentials
 		}
 	}
 
-	if len(missing) > 0 {
+	if len(needed) > 0 {
+		var missing []string
+		for k := range needed {
+			missing = append(missing, k)
+		}
 		return fmt.Errorf("missing required environment variable(s): %s", strings.Join(missing, ", "))
 	}
 	return nil

@@ -45,7 +45,8 @@ func NewClaudeGenerator(model string) *ClaudeGenerator {
 func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts GenerateOptions) (*Script, error) {
 	client := anthropic.NewClient()
 
-	sysPrompt := buildSystemPrompt(DefaultAlexPersona, DefaultSamPersona)
+	personas := buildPersonaSlice(opts.Voices)
+	sysPrompt := buildSystemPrompt(personas)
 	userPrompt := buildUserPrompt(content, opts)
 
 	modelID := claudeModels[g.model]
@@ -155,9 +156,10 @@ func parseScript(text string) (*Script, error) {
 	if len(s.Segments) == 0 {
 		return nil, fmt.Errorf("script has no segments")
 	}
+	validSpeakers := map[string]bool{"Alex": true, "Sam": true, "Jordan": true}
 	for i, seg := range s.Segments {
-		if seg.Speaker != "Alex" && seg.Speaker != "Sam" {
-			return nil, fmt.Errorf("segment %d has invalid speaker %q (must be Alex or Sam)", i, seg.Speaker)
+		if !validSpeakers[seg.Speaker] {
+			return nil, fmt.Errorf("segment %d has invalid speaker %q (must be Alex, Sam, or Jordan)", i, seg.Speaker)
 		}
 		if strings.TrimSpace(seg.Text) == "" {
 			return nil, fmt.Errorf("segment %d has empty text", i)

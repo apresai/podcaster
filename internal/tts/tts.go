@@ -4,10 +4,12 @@ package tts
 func VoiceForSpeaker(speaker string, voices VoiceMap) Voice {
 	switch speaker {
 	case "Alex":
-		return voices.Alex
+		return voices.Host1
 	case "Sam":
-		return voices.Sam
+		return voices.Host2
+	case "Jordan":
+		return voices.Host3
 	default:
-		return voices.Alex
+		return voices.Host1
 	}
 }

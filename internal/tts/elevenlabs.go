@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	elevenLabsDefaultVoiceAlex = "xuqUPASjAdyZvCNoMTEj"  // Chad
-	elevenLabsDefaultVoiceSam  = "56bWURjYFHyYyVf490Dp" // Emma
+	elevenLabsDefaultVoice1 = "xuqUPASjAdyZvCNoMTEj"  // Chad
+	elevenLabsDefaultVoice2 = "56bWURjYFHyYyVf490Dp"  // Emma
+	elevenLabsDefaultVoice3 = "TxGEqnHWrfWFTfGW9XjX"  // Josh
 
 	elevenLabsBaseURL      = "https://api.elevenlabs.io/v1/text-to-speech"
 	elevenLabsVoicesURL    = "https://api.elevenlabs.io/v1/voices"
@@ -43,19 +44,24 @@ type ElevenLabsProvider struct {
 	httpClient *http.Client
 }
 
-func NewElevenLabsProvider(voiceAlex, voiceSam string) *ElevenLabsProvider {
-	alexID := elevenLabsDefaultVoiceAlex
-	samID := elevenLabsDefaultVoiceSam
-	if voiceAlex != "" {
-		alexID = voiceAlex
+func NewElevenLabsProvider(voice1, voice2, voice3 string) *ElevenLabsProvider {
+	v1 := elevenLabsDefaultVoice1
+	v2 := elevenLabsDefaultVoice2
+	v3 := elevenLabsDefaultVoice3
+	if voice1 != "" {
+		v1 = voice1
 	}
-	if voiceSam != "" {
-		samID = voiceSam
+	if voice2 != "" {
+		v2 = voice2
+	}
+	if voice3 != "" {
+		v3 = voice3
 	}
 	return &ElevenLabsProvider{
 		voices: VoiceMap{
-			Alex: Voice{ID: alexID, Name: "Chad"},
-			Sam:  Voice{ID: samID, Name: "Emma"},
+			Host1: Voice{ID: v1, Name: "Chad"},
+			Host2: Voice{ID: v2, Name: "Emma"},
+			Host3: Voice{ID: v3, Name: "Josh"},
 		},
 		apiKey:     os.Getenv("ELEVENLABS_API_KEY"),
 		httpClient: &http.Client{Timeout: 60 * time.Second},
@@ -66,8 +72,9 @@ func (p *ElevenLabsProvider) Name() string { return "elevenlabs" }
 
 func (p *ElevenLabsProvider) DefaultVoices() VoiceMap {
 	return VoiceMap{
-		Alex: Voice{ID: elevenLabsDefaultVoiceAlex, Name: "Chad"},
-		Sam:  Voice{ID: elevenLabsDefaultVoiceSam, Name: "Emma"},
+		Host1: Voice{ID: elevenLabsDefaultVoice1, Name: "Chad"},
+		Host2: Voice{ID: elevenLabsDefaultVoice2, Name: "Emma"},
+		Host3: Voice{ID: elevenLabsDefaultVoice3, Name: "Josh"},
 	}
 }
 
@@ -176,7 +183,7 @@ func fetchElevenLabsVoices(apiKey string) ([]VoiceInfo, error) {
 			Gender: v.Labels["gender"],
 		}
 
-		// Build description from labels and top-level description.
+		// Build brief description from accent + description labels only.
 		var parts []string
 		if accent := v.Labels["accent"]; accent != "" {
 			parts = append(parts, accent)
@@ -184,20 +191,16 @@ func fetchElevenLabsVoices(apiKey string) ([]VoiceInfo, error) {
 		if desc := v.Labels["description"]; desc != "" {
 			parts = append(parts, desc)
 		}
-		if v.Category != "" {
-			parts = append(parts, v.Category)
-		}
-		if v.Description != "" {
-			parts = append(parts, v.Description)
-		}
 		info.Description = strings.Join(parts, ", ")
 
 		// Tag default voices.
 		switch v.VoiceID {
-		case elevenLabsDefaultVoiceAlex:
-			info.DefaultFor = "Alex"
-		case elevenLabsDefaultVoiceSam:
-			info.DefaultFor = "Sam"
+		case elevenLabsDefaultVoice1:
+			info.DefaultFor = "Voice 1"
+		case elevenLabsDefaultVoice2:
+			info.DefaultFor = "Voice 2"
+		case elevenLabsDefaultVoice3:
+			info.DefaultFor = "Voice 3"
 		}
 
 		voices = append(voices, info)
@@ -216,17 +219,17 @@ func elevenLabsAvailableVoices() []VoiceInfo {
 
 	// Fallback to hardcoded list.
 	return []VoiceInfo{
-		{ID: "xuqUPASjAdyZvCNoMTEj", Name: "Chad", Gender: "male", Description: "Cloned voice", DefaultFor: "Alex"},
-		{ID: "56bWURjYFHyYyVf490Dp", Name: "Emma", Gender: "female", Description: "Warm Australian female, engaging and conversational", DefaultFor: "Sam"},
-		{ID: "JBFqnCBsd6RMkjVDRZzb", Name: "George", Gender: "male", Description: "Warm British male, clear and authoritative"},
-		{ID: "EXAVITQu4vr4xnSDxMaL", Name: "Sarah", Gender: "female", Description: "Soft American female, friendly and engaging"},
-		{ID: "pNInz6obpgDQGcFmaJgB", Name: "Adam", Gender: "male", Description: "Deep American male, confident narrator"},
-		{ID: "ErXwobaYiN019PkySvjV", Name: "Antoni", Gender: "male", Description: "Young American male, conversational"},
-		{ID: "MF3mGyEYCl7XYWbV9V6O", Name: "Elli", Gender: "female", Description: "Young American female, bright and expressive"},
-		{ID: "TxGEqnHWrfWFTfGW9XjX", Name: "Josh", Gender: "male", Description: "Young American male, deep and smooth"},
-		{ID: "VR6AewLTigWG4xSOukaG", Name: "Arnold", Gender: "male", Description: "Deep gravelly male, commanding presence"},
-		{ID: "onwK4e9ZLuTAKqWW03F9", Name: "Daniel", Gender: "male", Description: "British male, authoritative news anchor"},
-		{ID: "XB0fDUnXU5powFXDhCwa", Name: "Charlotte", Gender: "female", Description: "Swedish-English female, warm and natural"},
-		{ID: "pFZP5JQG7iQjIQuC4Bku", Name: "Lily", Gender: "female", Description: "British female, warm storyteller"},
+		{ID: "xuqUPASjAdyZvCNoMTEj", Name: "Chad", Gender: "male", Description: "Cloned voice", DefaultFor: "Voice 1"},
+		{ID: "56bWURjYFHyYyVf490Dp", Name: "Emma", Gender: "female", Description: "Warm Australian female", DefaultFor: "Voice 2"},
+		{ID: "TxGEqnHWrfWFTfGW9XjX", Name: "Josh", Gender: "male", Description: "Deep, smooth male", DefaultFor: "Voice 3"},
+		{ID: "JBFqnCBsd6RMkjVDRZzb", Name: "George", Gender: "male", Description: "Warm British male"},
+		{ID: "EXAVITQu4vr4xnSDxMaL", Name: "Sarah", Gender: "female", Description: "Soft American female"},
+		{ID: "pNInz6obpgDQGcFmaJgB", Name: "Adam", Gender: "male", Description: "Deep American male"},
+		{ID: "ErXwobaYiN019PkySvjV", Name: "Antoni", Gender: "male", Description: "Young, conversational male"},
+		{ID: "MF3mGyEYCl7XYWbV9V6O", Name: "Elli", Gender: "female", Description: "Bright, expressive female"},
+		{ID: "VR6AewLTigWG4xSOukaG", Name: "Arnold", Gender: "male", Description: "Deep, gravelly male"},
+		{ID: "onwK4e9ZLuTAKqWW03F9", Name: "Daniel", Gender: "male", Description: "Authoritative British male"},
+		{ID: "XB0fDUnXU5powFXDhCwa", Name: "Charlotte", Gender: "female", Description: "Warm Swedish-English female"},
+		{ID: "pFZP5JQG7iQjIQuC4Bku", Name: "Lily", Gender: "female", Description: "Warm British female"},
 	}
 }

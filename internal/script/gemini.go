@@ -70,7 +70,8 @@ type geminiTextRespPart struct {
 }
 
 func (g *GeminiGenerator) Generate(ctx context.Context, content string, opts GenerateOptions) (*Script, error) {
-	sysPrompt := buildSystemPrompt(DefaultAlexPersona, DefaultSamPersona)
+	personas := buildPersonaSlice(opts.Voices)
+	sysPrompt := buildSystemPrompt(personas)
 	userPrompt := buildUserPrompt(content, opts)
 
 	modelID := geminiModels[g.model]

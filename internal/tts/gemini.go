@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	geminiDefaultVoiceAlex = "Charon"
-	geminiDefaultVoiceSam  = "Leda"
+	geminiDefaultVoice1 = "Charon"
+	geminiDefaultVoice2 = "Leda"
+	geminiDefaultVoice3 = "Fenrir"
 
 	geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent"
 )
@@ -91,19 +92,24 @@ type GeminiProvider struct {
 	httpClient *http.Client
 }
 
-func NewGeminiProvider(voiceAlex, voiceSam string) *GeminiProvider {
-	alexName := geminiDefaultVoiceAlex
-	samName := geminiDefaultVoiceSam
-	if voiceAlex != "" {
-		alexName = voiceAlex
+func NewGeminiProvider(voice1, voice2, voice3 string) *GeminiProvider {
+	v1 := geminiDefaultVoice1
+	v2 := geminiDefaultVoice2
+	v3 := geminiDefaultVoice3
+	if voice1 != "" {
+		v1 = voice1
 	}
-	if voiceSam != "" {
-		samName = voiceSam
+	if voice2 != "" {
+		v2 = voice2
+	}
+	if voice3 != "" {
+		v3 = voice3
 	}
 	return &GeminiProvider{
 		voices: VoiceMap{
-			Alex: Voice{ID: alexName, Name: alexName},
-			Sam:  Voice{ID: samName, Name: samName},
+			Host1: Voice{ID: v1, Name: v1},
+			Host2: Voice{ID: v2, Name: v2},
+			Host3: Voice{ID: v3, Name: v3},
 		},
 		apiKey:     os.Getenv("GEMINI_API_KEY"),
 		httpClient: &http.Client{Timeout: 300 * time.Second},
@@ -114,8 +120,9 @@ func (p *GeminiProvider) Name() string { return "gemini" }
 
 func (p *GeminiProvider) DefaultVoices() VoiceMap {
 	return VoiceMap{
-		Alex: Voice{ID: geminiDefaultVoiceAlex, Name: "Charon"},
-		Sam:  Voice{ID: geminiDefaultVoiceSam, Name: "Leda"},
+		Host1: Voice{ID: geminiDefaultVoice1, Name: "Charon"},
+		Host2: Voice{ID: geminiDefaultVoice2, Name: "Leda"},
+		Host3: Voice{ID: geminiDefaultVoice3, Name: "Fenrir"},
 	}
 }
 
@@ -152,6 +159,23 @@ func (p *GeminiProvider) SynthesizeBatch(ctx context.Context, segments []script.
 		dialogue += fmt.Sprintf("%s: %s\n", seg.Speaker, seg.Text)
 	}
 
+	// Dynamically build SpeakerVoiceConfigs from the speakers present in segments
+	seen := map[string]bool{}
+	var speakerConfigs []geminiSpeakerVoiceConfig
+	for _, seg := range segments {
+		if seen[seg.Speaker] {
+			continue
+		}
+		seen[seg.Speaker] = true
+		voice := VoiceForSpeaker(seg.Speaker, voices)
+		speakerConfigs = append(speakerConfigs, geminiSpeakerVoiceConfig{
+			Speaker: seg.Speaker,
+			VoiceConfig: geminiVoiceConfig{
+				PrebuiltVoiceConfig: geminiPrebuiltVoice{VoiceName: voice.ID},
+			},
+		})
+	}
+
 	req := geminiRequest{
 		Contents: []geminiContent{
 			{Parts: []geminiPart{{Text: dialogue}}},
@@ -160,20 +184,7 @@ func (p *GeminiProvider) SynthesizeBatch(ctx context.Context, segments []script.
 			ResponseModalities: []string{"AUDIO"},
 			SpeechConfig: geminiSpeechConfig{
 				MultiSpeakerVoiceConfig: &geminiMultiSpeakerConfig{
-					SpeakerVoiceConfigs: []geminiSpeakerVoiceConfig{
-						{
-							Speaker: "Alex",
-							VoiceConfig: geminiVoiceConfig{
-								PrebuiltVoiceConfig: geminiPrebuiltVoice{VoiceName: voices.Alex.ID},
-							},
-						},
-						{
-							Speaker: "Sam",
-							VoiceConfig: geminiVoiceConfig{
-								PrebuiltVoiceConfig: geminiPrebuiltVoice{VoiceName: voices.Sam.ID},
-							},
-						},
-					},
+					SpeakerVoiceConfigs: speakerConfigs,
 				},
 			},
 		},
@@ -254,10 +265,10 @@ func (p *GeminiProvider) Close() error { return nil }
 
 func geminiAvailableVoices() []VoiceInfo {
 	return []VoiceInfo{
-		{ID: "Charon", Name: "Charon", Gender: "male", Description: "Informative, clear male narrator", DefaultFor: "Alex"},
-		{ID: "Leda", Name: "Leda", Gender: "female", Description: "Youthful, bright female voice", DefaultFor: "Sam"},
+		{ID: "Charon", Name: "Charon", Gender: "male", Description: "Informative, clear male narrator", DefaultFor: "Voice 1"},
+		{ID: "Leda", Name: "Leda", Gender: "female", Description: "Youthful, bright female voice", DefaultFor: "Voice 2"},
+		{ID: "Fenrir", Name: "Fenrir", Gender: "male", Description: "Excitable, deep male voice", DefaultFor: "Voice 3"},
 		{ID: "Kore", Name: "Kore", Gender: "female", Description: "Firm, confident female voice"},
-		{ID: "Fenrir", Name: "Fenrir", Gender: "male", Description: "Excitable, deep male voice"},
 		{ID: "Aoede", Name: "Aoede", Gender: "female", Description: "Bright, expressive female voice"},
 		{ID: "Puck", Name: "Puck", Gender: "male", Description: "Upbeat, energetic male voice"},
 		{ID: "Orus", Name: "Orus", Gender: "male", Description: "Firm, authoritative male narrator"},

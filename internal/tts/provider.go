@@ -3,6 +3,8 @@ package tts
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/apresai/podcaster/internal/script"
@@ -19,14 +21,16 @@ const (
 
 // Voice holds a provider-specific voice identifier.
 type Voice struct {
-	ID   string // Provider-specific voice identifier
-	Name string // Human-readable label
+	ID       string // Provider-specific voice identifier
+	Name     string // Human-readable label
+	Provider string // "elevenlabs", "gemini", "google"
 }
 
 // VoiceMap maps podcast hosts to voices.
 type VoiceMap struct {
-	Alex Voice
-	Sam  Voice
+	Host1 Voice // Voice 1 (maps to Alex)
+	Host2 Voice // Voice 2 (maps to Sam)
+	Host3 Voice // Voice 3 (maps to Jordan)
 }
 
 // AudioResult is the output of a synthesis call.
@@ -56,7 +60,7 @@ type VoiceInfo struct {
 	Name        string
 	Gender      string // "male" or "female"
 	Description string
-	DefaultFor  string // "Alex", "Sam", or ""
+	DefaultFor  string // "Voice 1", "Voice 2", "Voice 3", or ""
 }
 
 // AvailableVoices returns the voice catalog for the named provider.
@@ -121,17 +125,77 @@ func WithRetry(ctx context.Context, fn func() error) error {
 	return lastErr
 }
 
-// NewProvider creates a TTS provider by name. voiceAlex and voiceSam are
-// optional provider-specific voice ID overrides.
-func NewProvider(name string, voiceAlex, voiceSam string) (Provider, error) {
+// NewProvider creates a TTS provider by name. voice1, voice2, and voice3 are
+// optional provider-specific voice ID overrides for hosts 1-3.
+func NewProvider(name string, voice1, voice2, voice3 string) (Provider, error) {
 	switch name {
 	case "elevenlabs":
-		return NewElevenLabsProvider(voiceAlex, voiceSam), nil
+		return NewElevenLabsProvider(voice1, voice2, voice3), nil
 	case "google":
-		return NewGoogleProvider(voiceAlex, voiceSam)
+		return NewGoogleProvider(voice1, voice2, voice3)
 	case "gemini":
-		return NewGeminiProvider(voiceAlex, voiceSam), nil
+		return NewGeminiProvider(voice1, voice2, voice3), nil
 	default:
 		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, or gemini", name)
 	}
+}
+
+// ParseVoiceSpec parses "provider:voiceID" or plain "voiceID".
+// Returns (provider, voiceID). If no prefix, provider is empty (caller uses default).
+func ParseVoiceSpec(spec string) (provider, voiceID string) {
+	if i := strings.Index(spec, ":"); i > 0 {
+		prefix := spec[:i]
+		// Only treat as provider prefix if it's a known provider name
+		switch prefix {
+		case "elevenlabs", "gemini", "google":
+			return prefix, spec[i+1:]
+		}
+	}
+	return "", spec
+}
+
+// ProviderSet is a lazy pool of TTS providers, created on first use.
+type ProviderSet struct {
+	mu        sync.Mutex
+	providers map[string]Provider
+}
+
+// NewProviderSet creates an empty provider pool.
+func NewProviderSet() *ProviderSet {
+	return &ProviderSet{
+		providers: make(map[string]Provider),
+	}
+}
+
+// Get returns a provider by name, creating it on first call.
+// Voice IDs are not passed here — they are routed per-segment via Voice.ID.
+func (ps *ProviderSet) Get(name string) (Provider, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	if p, ok := ps.providers[name]; ok {
+		return p, nil
+	}
+
+	p, err := NewProvider(name, "", "", "")
+	if err != nil {
+		return nil, err
+	}
+	ps.providers[name] = p
+	return p, nil
+}
+
+// Close closes all providers in the set.
+func (ps *ProviderSet) Close() error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	var firstErr error
+	for _, p := range ps.providers {
+		if err := p.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	ps.providers = make(map[string]Provider)
+	return firstErr
 }

@@ -1,4 +1,5 @@
-bin/
+podcaster
 *.mp3
 *.json
 !docs/*.json
+podcaster-output/
