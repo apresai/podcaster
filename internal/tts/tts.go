@@ -1,34 +1,13 @@
 package tts
 
-import (
-	"context"
-
-	"github.com/chad/podcaster/internal/script"
-)
-
-type TTSClient interface {
-	Synthesize(ctx context.Context, segment script.Segment, voiceID string) ([]byte, error)
-	SynthesizeAll(ctx context.Context, segments []script.Segment, tmpDir string) ([]string, error)
-}
-
-type VoiceConfig struct {
-	VoiceID string
-	Speaker string
-}
-
-func GetVoiceID(speaker string, voiceAlex, voiceSam string) string {
+// VoiceForSpeaker returns the appropriate voice from the map for a given speaker name.
+func VoiceForSpeaker(speaker string, voices VoiceMap) Voice {
 	switch speaker {
 	case "Alex":
-		if voiceAlex != "" {
-			return voiceAlex
-		}
-		return DefaultVoiceAlex
+		return voices.Alex
 	case "Sam":
-		if voiceSam != "" {
-			return voiceSam
-		}
-		return DefaultVoiceSam
+		return voices.Sam
 	default:
-		return DefaultVoiceAlex
+		return voices.Alex
 	}
 }

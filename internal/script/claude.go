@@ -13,12 +13,22 @@ import (
 
 const (
 	claudeModel    = "claude-sonnet-4-5-20250929"
-	maxTokens      = 8192
 	temperature    = 0.7
 	maxRetries     = 3
 	initialBackoff = 1 * time.Second
 	backoffMult    = 2
 )
+
+func maxTokensForDuration(duration string) int64 {
+	switch duration {
+	case "long":
+		return 16384
+	case "deep":
+		return 32768
+	default: // short, standard, medium
+		return 8192
+	}
+}
 
 type ClaudeGenerator struct{}
 
@@ -41,7 +51,7 @@ func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts Gen
 
 		message, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 			Model:     claudeModel,
-			MaxTokens: maxTokens,
+			MaxTokens: maxTokensForDuration(opts.Duration),
 			Temperature: anthropic.Float(temperature),
 			System: []anthropic.TextBlockParam{
 				{Text: systemPrompt},

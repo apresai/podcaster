@@ -22,6 +22,7 @@ type GenerateOptions struct {
 	Topic    string
 	Tone     string
 	Duration string
+	Styles   []string
 }
 
 type Generator interface {

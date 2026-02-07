@@ -80,6 +80,51 @@ func buildConcatList(segments []string, silencePath string, listPath string) err
 	return nil
 }
 
+// ConvertToMP3 converts raw audio (PCM/LPCM/WAV) to MP3 via FFmpeg.
+// The format parameter determines the input interpretation:
+//   - "pcm":  raw 24kHz 16-bit signed little-endian mono
+//   - "lpcm": raw 24kHz 16-bit signed little-endian mono (same as pcm)
+//   - "wav":  standard WAV header (auto-detected by FFmpeg)
+func ConvertToMP3(ctx context.Context, input string, format string, output string) error {
+	var args []string
+	switch format {
+	case "pcm", "lpcm":
+		args = []string{
+			"-f", "s16le",
+			"-ar", "24000",
+			"-ac", "1",
+			"-i", input,
+			"-c:a", "libmp3lame",
+			"-b:a", "128k",
+			"-ar", "44100",
+			"-ac", "2",
+			"-y",
+			output,
+		}
+	case "wav":
+		args = []string{
+			"-i", input,
+			"-c:a", "libmp3lame",
+			"-b:a", "128k",
+			"-ar", "44100",
+			"-ac", "2",
+			"-y",
+			output,
+		}
+	default:
+		return fmt.Errorf("unsupported audio format for conversion: %s", format)
+	}
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd.Stderr = nil
+	cmd.Stdout = nil
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg conversion (%s → mp3) failed: %w", format, err)
+	}
+	return nil
+}
+
 func runFFmpegConcat(ctx context.Context, listPath string, output string) error {
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-f", "concat",

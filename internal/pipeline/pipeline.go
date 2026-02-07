@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,16 +18,18 @@ import (
 )
 
 type Options struct {
-	Input      string
-	Output     string
-	Topic      string
-	Tone       string
-	Duration   string
-	VoiceAlex  string
-	VoiceSam   string
-	ScriptOnly bool
-	FromScript string
-	Verbose    bool
+	Input       string
+	Output      string
+	Topic       string
+	Tone        string
+	Duration    string
+	Styles      []string
+	VoiceAlex   string
+	VoiceSam    string
+	ScriptOnly  bool
+	FromScript  string
+	Verbose     bool
+	TTSProvider string
 }
 
 type PipelineError struct {
@@ -97,6 +100,7 @@ func Run(ctx context.Context, opts Options) error {
 			Topic:    opts.Topic,
 			Tone:     opts.Tone,
 			Duration: opts.Duration,
+			Styles:   opts.Styles,
 		}
 		s, err = gen.Generate(ctx, content.Text, genOpts)
 		if err != nil {
@@ -121,48 +125,101 @@ func Run(ctx context.Context, opts Options) error {
 
 	// Stage 3: TTS
 	stageStart := time.Now()
-	fmt.Printf("  Synthesizing audio...\n")
-	ttsClient := tts.NewElevenLabsClient(opts.VoiceAlex, opts.VoiceSam)
-	tmpDir, err := os.MkdirTemp("", "podcaster-*")
+	provider, err := tts.NewProvider(opts.TTSProvider, opts.VoiceAlex, opts.VoiceSam)
 	if err != nil {
-		return &PipelineError{Stage: "tts", Message: "failed to create temp directory", Err: err}
+		return &PipelineError{Stage: "tts", Message: "failed to create TTS provider", Err: err}
 	}
-	defer os.RemoveAll(tmpDir)
+	defer provider.Close()
+	voices := provider.DefaultVoices()
+	if opts.VoiceAlex != "" {
+		voices.Alex = tts.Voice{ID: opts.VoiceAlex, Name: opts.VoiceAlex}
+	}
+	if opts.VoiceSam != "" {
+		voices.Sam = tts.Voice{ID: opts.VoiceSam, Name: opts.VoiceSam}
+	}
+
+	fmt.Printf("  Synthesizing audio via %s...\n", provider.Name())
 
 	if opts.Verbose {
-		fmt.Printf("    Temp directory: %s\n", tmpDir)
-		fmt.Printf("    Voice Alex: %s\n", ttsClient.VoiceAlexID())
-		fmt.Printf("    Voice Sam: %s\n", ttsClient.VoiceSamID())
+		fmt.Printf("    Voice Alex: %s\n", voices.Alex.ID)
+		fmt.Printf("    Voice Sam: %s\n", voices.Sam.ID)
 	}
 
-	audioFiles, err := ttsClient.SynthesizeAll(ctx, s.Segments, tmpDir)
-	if err != nil {
-		return &PipelineError{Stage: "tts", Message: "failed to synthesize audio", Err: err}
-	}
+	// Check if provider supports batch synthesis (e.g., Gemini multi-speaker)
+	if bp, ok := provider.(tts.BatchProvider); ok {
+		result, err := bp.SynthesizeBatch(ctx, s.Segments, voices)
+		if err != nil {
+			return &PipelineError{Stage: "tts", Message: "batch synthesis failed", Err: err}
+		}
 
-	if opts.Verbose {
-		fmt.Printf("    TTS time: %s\n", time.Since(stageStart).Round(time.Millisecond))
-		var totalBytes int64
-		for _, f := range audioFiles {
-			if info, err := os.Stat(f); err == nil {
-				totalBytes += info.Size()
+		if opts.Verbose {
+			fmt.Printf("    TTS time: %s\n", time.Since(stageStart).Round(time.Millisecond))
+			fmt.Printf("    Output format: %s\n", result.Format)
+		}
+
+		// Convert to MP3 if needed, or write directly
+		if result.Format != tts.FormatMP3 {
+			tmpDir, err := os.MkdirTemp("", "podcaster-*")
+			if err != nil {
+				return &PipelineError{Stage: "tts", Message: "failed to create temp directory", Err: err}
+			}
+			defer os.RemoveAll(tmpDir)
+
+			rawPath := filepath.Join(tmpDir, "batch_output.raw")
+			if err := os.WriteFile(rawPath, result.Data, 0644); err != nil {
+				return &PipelineError{Stage: "tts", Message: "failed to write raw audio", Err: err}
+			}
+			if err := assembly.ConvertToMP3(ctx, rawPath, string(result.Format), opts.Output); err != nil {
+				return &PipelineError{Stage: "assembly", Message: "failed to convert audio to MP3", Err: err}
+			}
+		} else {
+			if err := os.WriteFile(opts.Output, result.Data, 0644); err != nil {
+				return &PipelineError{Stage: "tts", Message: "failed to write output", Err: err}
 			}
 		}
-		fmt.Printf("    Total audio data: %d bytes (%d files)\n", totalBytes, len(audioFiles))
-	}
 
-	// Stage 4: Assembly
-	stageStart = time.Now()
-	fmt.Printf("  Assembling episode...")
-	assembler := assembly.NewFFmpegAssembler()
-	if err := assembler.Assemble(ctx, audioFiles, tmpDir, opts.Output); err != nil {
-		fmt.Println(" failed")
-		return &PipelineError{Stage: "assembly", Message: "failed to assemble episode", Err: err}
-	}
-	fmt.Println(" done")
+		fmt.Println("  Assembly skipped (batch provider)")
+	} else {
+		// Per-segment synthesis path
+		tmpDir, err := os.MkdirTemp("", "podcaster-*")
+		if err != nil {
+			return &PipelineError{Stage: "tts", Message: "failed to create temp directory", Err: err}
+		}
+		defer os.RemoveAll(tmpDir)
 
-	if opts.Verbose {
-		fmt.Printf("    Assembly time: %s\n", time.Since(stageStart).Round(time.Millisecond))
+		if opts.Verbose {
+			fmt.Printf("    Temp directory: %s\n", tmpDir)
+		}
+
+		audioFiles, err := synthesizeSegments(ctx, provider, s.Segments, voices, tmpDir)
+		if err != nil {
+			return &PipelineError{Stage: "tts", Message: "failed to synthesize audio", Err: err}
+		}
+
+		if opts.Verbose {
+			fmt.Printf("    TTS time: %s\n", time.Since(stageStart).Round(time.Millisecond))
+			var totalBytes int64
+			for _, f := range audioFiles {
+				if info, err := os.Stat(f); err == nil {
+					totalBytes += info.Size()
+				}
+			}
+			fmt.Printf("    Total audio data: %d bytes (%d files)\n", totalBytes, len(audioFiles))
+		}
+
+		// Stage 4: Assembly
+		stageStart = time.Now()
+		fmt.Printf("  Assembling episode...")
+		assembler := assembly.NewFFmpegAssembler()
+		if err := assembler.Assemble(ctx, audioFiles, tmpDir, opts.Output); err != nil {
+			fmt.Println(" failed")
+			return &PipelineError{Stage: "assembly", Message: "failed to assemble episode", Err: err}
+		}
+		fmt.Println(" done")
+
+		if opts.Verbose {
+			fmt.Printf("    Assembly time: %s\n", time.Since(stageStart).Round(time.Millisecond))
+		}
 	}
 
 	// Report final output
@@ -182,6 +239,79 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	return nil
+}
+
+// synthesizeSegments runs per-segment TTS with progress output, converting
+// non-MP3 formats to MP3 as needed.
+func synthesizeSegments(ctx context.Context, provider tts.Provider, segments []script.Segment, voices tts.VoiceMap, tmpDir string) ([]string, error) {
+	total := len(segments)
+	files := make([]string, 0, total)
+
+	for i, seg := range segments {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		voice := tts.VoiceForSpeaker(seg.Speaker, voices)
+
+		pct := (i * 100) / total
+		bar := progressBar(pct, 20)
+		fmt.Printf("\r  Synthesizing audio... [%d/%d] %s %d%%", i+1, total, bar, pct)
+
+		var result tts.AudioResult
+		err := tts.WithRetry(ctx, func() error {
+			var synthErr error
+			result, synthErr = provider.Synthesize(ctx, seg.Text, voice)
+			return synthErr
+		})
+		if err != nil {
+			fmt.Println()
+			return nil, fmt.Errorf("segment %d (%s): %w", i+1, seg.Speaker, err)
+		}
+
+		// If provider returns non-MP3, convert via FFmpeg
+		filename := filepath.Join(tmpDir, fmt.Sprintf("segment_%03d.mp3", i))
+		if result.Format != tts.FormatMP3 {
+			rawPath := filepath.Join(tmpDir, fmt.Sprintf("segment_%03d.raw", i))
+			if err := os.WriteFile(rawPath, result.Data, 0644); err != nil {
+				fmt.Println()
+				return nil, fmt.Errorf("write raw segment %d: %w", i+1, err)
+			}
+			if err := assembly.ConvertToMP3(ctx, rawPath, string(result.Format), filename); err != nil {
+				fmt.Println()
+				return nil, fmt.Errorf("convert segment %d: %w", i+1, err)
+			}
+		} else {
+			if err := os.WriteFile(filename, result.Data, 0644); err != nil {
+				fmt.Println()
+				return nil, fmt.Errorf("write segment %d: %w", i+1, err)
+			}
+		}
+
+		files = append(files, filename)
+	}
+
+	bar := progressBar(100, 20)
+	fmt.Printf("\r  Synthesizing audio... [%d/%d] %s 100%% done\n", total, total, bar)
+
+	return files, nil
+}
+
+func progressBar(pct, width int) string {
+	filled := (pct * width) / 100
+	if filled > width {
+		filled = width
+	}
+	empty := width - filled
+	return fmt.Sprintf("%s%s", repeatStr("█", filled), repeatStr("░", empty))
+}
+
+func repeatStr(s string, n int) string {
+	result := ""
+	for i := 0; i < n; i++ {
+		result += s
+	}
+	return result
 }
 
 func probeDuration(path string) string {

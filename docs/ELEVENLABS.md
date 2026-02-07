@@ -210,14 +210,101 @@ The `output_format` query parameter controls the audio encoding.
 
 ## Models
 
-| Model ID | Description | Latency | Best For |
-|----------|-------------|---------|----------|
-| `eleven_multilingual_v2` | Highest quality, 29 languages, emotionally aware | Higher | **Recommended** — best voice quality and naturalness |
-| `eleven_turbo_v2_5` | High quality, 32 languages, 3x faster than multilingual v2 | ~400ms | Balance of quality and speed |
-| `eleven_flash_v2_5` | Low latency, 32 languages, half the cost | ~75ms | Real-time applications, cost-sensitive use |
-| `eleven_flash_v2` | Low latency, English only, half the cost | ~75ms | English-only speed applications |
+| Model ID | Description | Latency | Credit Cost | Best For |
+|----------|-------------|---------|-------------|----------|
+| `eleven_multilingual_v2` | Highest quality, 29 languages, emotionally aware | Higher | 1x (1 credit/char) | Best voice quality and naturalness |
+| `eleven_turbo_v2_5` | High quality, 32 languages, 3x faster | ~400ms | 0.5x (1 credit/2 chars) | Balance of quality and speed |
+| `eleven_flash_v2_5` | Low latency, 32 languages | ~75ms | 0.5x (1 credit/2 chars) | **Current default** — cost-sensitive, good quality |
+| `eleven_flash_v2` | Low latency, English only | ~75ms | 0.5x (1 credit/2 chars) | English-only, lowest latency |
 
-For this project, use `eleven_multilingual_v2` — quality matters more than latency for pre-generated podcast audio.
+This project uses `eleven_flash_v2_5` — half the credit cost with good quality for pre-generated podcast audio.
+
+## Pricing & Cost Estimates
+
+### ElevenLabs Plans
+
+| Plan | Monthly Price | Credits/month | Est. Audio (flash) | Est. Audio (multilingual v2) |
+|------|-------------|---------------|---------------------|-------------------------------|
+| Free | $0 | 10,000 | ~20 min | ~10 min |
+| Starter | $5 | 30,000 | ~60 min | ~30 min |
+| Creator | $22 | 100,000 | ~200 min | ~100 min |
+| Pro | $99 | 500,000 | ~1,000 min | ~500 min |
+| Scale | $330 | 2,000,000 | ~4,000 min | ~2,000 min |
+
+### Cost Per Episode by Model
+
+Based on ~1,000 characters per minute of audio output:
+
+| Model | Credits/min | Cost/min (Creator) | 5-min Episode | 10-min Episode | 20-min Episode |
+|-------|-------------|-------------------|---------------|----------------|----------------|
+| `eleven_flash_v2_5` | ~500 | ~$0.11 | ~$0.55 | ~$1.10 | ~$2.20 |
+| `eleven_flash_v2` | ~500 | ~$0.11 | ~$0.55 | ~$1.10 | ~$2.20 |
+| `eleven_turbo_v2_5` | ~500 | ~$0.11 | ~$0.55 | ~$1.10 | ~$2.20 |
+| `eleven_multilingual_v2` | ~1,000 | ~$0.22 | ~$1.10 | ~$2.20 | ~$4.40 |
+
+### Episodes Per Month (Creator Plan, $22/mo)
+
+| Model | 5-min Episodes | 10-min Episodes | 20-min Episodes |
+|-------|---------------|-----------------|-----------------|
+| Flash / Turbo (0.5x) | ~40 | ~20 | ~10 |
+| Multilingual v2 (1x) | ~20 | ~10 | ~5 |
+
+### Total Generation Cost (Claude API + TTS)
+
+Claude API cost for script generation is ~$0.01-0.05 per episode (negligible).
+Total cost is dominated by TTS.
+
+| Episode Length | Flash Model | Multilingual v2 |
+|---------------|-------------|-----------------|
+| Short (~5 min) | **~$0.55** | ~$1.10 |
+| Medium (~10 min) | **~$1.10** | ~$2.20 |
+| Long (~20 min) | **~$2.20** | ~$4.40 |
+
+### TTS Provider Comparison (Pay-as-you-go)
+
+All costs based on ~1,000 characters per minute of podcast audio.
+
+| Provider | Model | $/1M chars | $/min audio | 10-min Episode | Quality |
+|----------|-------|-----------|-------------|----------------|---------|
+| Google Cloud | Standard | $4.00 | $0.004 | **$0.04** | Basic, robotic |
+| OpenAI | TTS | $3.75 | $0.004 | **$0.04** | Good |
+| Amazon Polly | Standard | $4.00 | $0.004 | **$0.04** | Basic |
+| OpenAI | TTS HD | $7.50 | $0.008 | **$0.08** | Very good |
+| Deepgram | Aura-1 | $15.00 | $0.015 | **$0.15** | Good |
+| Google Cloud | WaveNet/Neural2 | $16.00 | $0.016 | **$0.16** | Good |
+| Amazon Polly | Neural | $16.00 | $0.016 | **$0.16** | Good |
+| Google Cloud | Chirp 3: HD | $30.00 | $0.030 | **$0.30** | Very good |
+| Amazon Polly | Generative | $30.00 | $0.030 | **$0.30** | Very good |
+| Deepgram | Aura-2 | $30.00 | $0.030 | **$0.30** | Very good |
+| ElevenLabs | Flash v2.5 | $49.50 | $0.050 | **$0.50** | Excellent |
+| ElevenLabs | Turbo v2.5 | $49.50 | $0.050 | **$0.50** | Excellent |
+| Google Cloud | Instant Custom | $60.00 | $0.060 | **$0.60** | Good (custom) |
+| ElevenLabs | Multilingual v2 | $99.00 | $0.099 | **$0.99** | Best |
+| Google Cloud | Studio | $160.00 | $0.160 | **$1.60** | Premium |
+
+**Note on Gemini TTS**: Gemini 2.5 Flash TTS is priced at $0.50/1M input tokens + $10.00/1M output tokens. Pricing is token-based (not character-based) and depends on audio output length, making direct comparison difficult. Estimated cost is competitive with Google Cloud Chirp for similar quality.
+
+#### Key Takeaways
+
+- **Cheapest**: Google Cloud Standard / OpenAI TTS / Amazon Polly Standard (~$0.04/10-min episode)
+- **Best value**: OpenAI TTS HD ($0.08/episode) or Google Cloud WaveNet ($0.16/episode)
+- **Current (ElevenLabs Flash)**: $0.50/episode pay-as-you-go, ~$1.10/episode on Creator plan
+- **Best quality**: ElevenLabs Multilingual v2 ($0.99/episode) — most natural and expressive
+
+Google Cloud and OpenAI are 5-10x cheaper than ElevenLabs at pay-as-you-go rates. ElevenLabs subscription plans narrow the gap but remain more expensive. The tradeoff is voice quality — ElevenLabs voices are generally considered the most natural-sounding.
+
+#### Free Tiers
+
+| Provider | Free Allowance | Est. Free Audio |
+|----------|---------------|-----------------|
+| Google Cloud Standard | 4M chars/month | ~4,000 min |
+| Google Cloud WaveNet/Neural2 | 1M chars/month | ~1,000 min |
+| Google Cloud Chirp 3: HD | 1M chars/month | ~1,000 min |
+| ElevenLabs | 10,000 chars/month | ~10-20 min |
+| Amazon Polly | 1M chars/month (12 mo) | ~1,000 min |
+| OpenAI | None | — |
+
+Google Cloud's free tier is by far the most generous — 1M characters/month would cover ~100 ten-minute episodes on WaveNet/Chirp.
 
 ## List Voices Endpoint
 

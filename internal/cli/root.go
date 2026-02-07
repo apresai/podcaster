@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/chad/podcaster/internal/pipeline"
+	"github.com/chad/podcaster/internal/tts"
 	"github.com/spf13/cobra"
 )
 
@@ -31,33 +32,49 @@ var generateCmd = &cobra.Command{
 	RunE:  runGenerate,
 }
 
+var listVoicesCmd = &cobra.Command{
+	Use:   "list-voices",
+	Short: "List available voices for a TTS provider",
+	RunE:  runListVoices,
+}
+
+var flagListVoicesTTS string
+
 var (
-	flagInput      string
-	flagOutput     string
-	flagTopic      string
-	flagTone       string
-	flagDuration   string
-	flagVoiceAlex  string
-	flagVoiceSam   string
-	flagScriptOnly bool
-	flagFromScript string
-	flagVerbose    bool
+	flagInput       string
+	flagOutput      string
+	flagTopic       string
+	flagTone        string
+	flagDuration    string
+	flagStyle       string
+	flagVoiceAlex   string
+	flagVoiceSam    string
+	flagScriptOnly  bool
+	flagFromScript  string
+	flagVerbose     bool
+	flagTTS         string
+	flagInteractive bool
 )
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(generateCmd)
+	rootCmd.AddCommand(listVoicesCmd)
+	listVoicesCmd.Flags().StringVar(&flagListVoicesTTS, "tts", "elevenlabs", "TTS provider: elevenlabs, google, or gemini")
 
 	generateCmd.Flags().StringVarP(&flagInput, "input", "i", "", "Source content (URL, PDF path, or text file path)")
 	generateCmd.Flags().StringVarP(&flagOutput, "output", "o", "", "Output file path (MP3 or JSON with --script-only)")
 	generateCmd.Flags().StringVar(&flagTopic, "topic", "", "Focus the conversation on a specific topic")
 	generateCmd.Flags().StringVar(&flagTone, "tone", "casual", "Conversation tone: casual, technical, educational")
-	generateCmd.Flags().StringVar(&flagDuration, "duration", "medium", "Target duration: short, medium, long")
-	generateCmd.Flags().StringVar(&flagVoiceAlex, "voice-alex", "", "ElevenLabs voice ID for Alex")
-	generateCmd.Flags().StringVar(&flagVoiceSam, "voice-sam", "", "ElevenLabs voice ID for Sam")
+	generateCmd.Flags().StringVar(&flagDuration, "duration", "standard", "Target duration: short (~30 segs), standard (~50), long (~75), deep (~200)")
+	generateCmd.Flags().StringVar(&flagStyle, "style", "", "Conversation styles (comma-separated): humor, wow, serious, debate, storytelling")
+	generateCmd.Flags().StringVar(&flagVoiceAlex, "voice-alex", "", "Voice ID for Alex (provider-specific)")
+	generateCmd.Flags().StringVar(&flagVoiceSam, "voice-sam", "", "Voice ID for Sam (provider-specific)")
 	generateCmd.Flags().BoolVar(&flagScriptOnly, "script-only", false, "Output script JSON only, skip TTS and assembly")
 	generateCmd.Flags().StringVar(&flagFromScript, "from-script", "", "Generate audio from an existing script JSON file")
 	generateCmd.Flags().BoolVar(&flagVerbose, "verbose", false, "Enable detailed logging")
+	generateCmd.Flags().BoolVar(&flagInteractive, "interactive", false, "Interactive setup wizard for generation options")
+	generateCmd.Flags().StringVar(&flagTTS, "tts", "elevenlabs", "TTS provider: elevenlabs, google, or gemini")
 }
 
 func Execute() error {
@@ -65,6 +82,13 @@ func Execute() error {
 }
 
 func runGenerate(cmd *cobra.Command, args []string) error {
+	// Run interactive setup if requested
+	if flagInteractive {
+		if err := runInteractiveSetup(); err != nil {
+			return err
+		}
+	}
+
 	// Validate flags
 	if flagFromScript == "" && flagInput == "" {
 		return fmt.Errorf("either --input (-i) or --from-script is required")
@@ -83,13 +107,35 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate duration
-	validDurations := map[string]bool{"short": true, "medium": true, "long": true}
+	validDurations := map[string]bool{"short": true, "standard": true, "long": true, "deep": true, "medium": true}
 	if !validDurations[flagDuration] {
-		return fmt.Errorf("invalid duration %q: must be short, medium, or long", flagDuration)
+		return fmt.Errorf("invalid duration %q: must be short, standard, long, or deep", flagDuration)
+	}
+	if flagDuration == "medium" {
+		flagDuration = "standard"
+	}
+
+	// Validate and parse styles
+	var styles []string
+	if flagStyle != "" {
+		validStyles := map[string]bool{"humor": true, "wow": true, "serious": true, "debate": true, "storytelling": true}
+		for _, s := range strings.Split(flagStyle, ",") {
+			s = strings.TrimSpace(s)
+			if !validStyles[s] {
+				return fmt.Errorf("invalid style %q: must be humor, wow, serious, debate, or storytelling", s)
+			}
+			styles = append(styles, s)
+		}
+	}
+
+	// Validate TTS provider name
+	validProviders := map[string]bool{"elevenlabs": true, "google": true, "gemini": true}
+	if !validProviders[flagTTS] {
+		return fmt.Errorf("invalid TTS provider %q: must be elevenlabs, google, or gemini", flagTTS)
 	}
 
 	// Check API keys
-	if err := checkAPIKeys(); err != nil {
+	if err := checkAPIKeys(flagTTS); err != nil {
 		return err
 	}
 
@@ -101,35 +147,64 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := pipeline.Options{
-		Input:      flagInput,
-		Output:     flagOutput,
-		Topic:      flagTopic,
-		Tone:       flagTone,
-		Duration:   flagDuration,
-		VoiceAlex:  flagVoiceAlex,
-		VoiceSam:   flagVoiceSam,
-		ScriptOnly: flagScriptOnly,
-		FromScript: flagFromScript,
-		Verbose:    flagVerbose,
+		Input:       flagInput,
+		Output:      flagOutput,
+		Topic:       flagTopic,
+		Tone:        flagTone,
+		Duration:    flagDuration,
+		Styles:      styles,
+		VoiceAlex:   flagVoiceAlex,
+		VoiceSam:    flagVoiceSam,
+		ScriptOnly:  flagScriptOnly,
+		FromScript:  flagFromScript,
+		Verbose:     flagVerbose,
+		TTSProvider: flagTTS,
 	}
 
 	return pipeline.Run(cmd.Context(), opts)
 }
 
-func checkAPIKeys() error {
+func runListVoices(cmd *cobra.Command, args []string) error {
+	voices, err := tts.AvailableVoices(flagListVoicesTTS)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\nAvailable voices for %s:\n\n", flagListVoicesTTS)
+	fmt.Printf("  %-28s %-12s %-8s %s\n", "ID", "NAME", "GENDER", "DESCRIPTION")
+	fmt.Printf("  %-28s %-12s %-8s %s\n", "---", "----", "------", "-----------")
+	for _, v := range voices {
+		def := ""
+		if v.DefaultFor != "" {
+			def = fmt.Sprintf(" (default %s)", v.DefaultFor)
+		}
+		fmt.Printf("  %-28s %-12s %-8s %s%s\n", v.ID, v.Name, v.Gender, v.Description, def)
+	}
+	fmt.Println()
+	return nil
+}
+
+func checkAPIKeys(ttsProvider string) error {
 	var missing []string
 
 	if flagFromScript == "" {
-		// Need Claude API for script generation
 		if os.Getenv("ANTHROPIC_API_KEY") == "" {
 			missing = append(missing, "ANTHROPIC_API_KEY")
 		}
 	}
 
 	if !flagScriptOnly {
-		// Need ElevenLabs API for TTS
-		if os.Getenv("ELEVENLABS_API_KEY") == "" {
-			missing = append(missing, "ELEVENLABS_API_KEY")
+		switch ttsProvider {
+		case "elevenlabs":
+			if os.Getenv("ELEVENLABS_API_KEY") == "" {
+				missing = append(missing, "ELEVENLABS_API_KEY")
+			}
+		case "gemini":
+			if os.Getenv("GEMINI_API_KEY") == "" {
+				missing = append(missing, "GEMINI_API_KEY")
+			}
+		case "google":
+			// Uses Application Default Credentials
 		}
 	}
 

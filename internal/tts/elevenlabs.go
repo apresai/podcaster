@@ -8,33 +8,25 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
-
-	"github.com/chad/podcaster/internal/script"
 )
 
 const (
-	DefaultVoiceAlex = "JBFqnCBsd6RMkjVDRZzb" // George
-	DefaultVoiceSam  = "EXAVITQu4vr4xnSDxMaL"  // Sarah
+	elevenLabsDefaultVoiceAlex = "JBFqnCBsd6RMkjVDRZzb" // George
+	elevenLabsDefaultVoiceSam  = "EXAVITQu4vr4xnSDxMaL" // Sarah
 
-	apiBaseURL   = "https://api.elevenlabs.io/v1/text-to-speech"
-	modelID      = "eleven_multilingual_v2"
-	outputFormat = "mp3_44100_128"
-
-	maxAttempts    = 3
-	initialBackoff = 1 * time.Second
-	backoffMulti   = 2
-	maxBackoff     = 10 * time.Second
+	elevenLabsBaseURL      = "https://api.elevenlabs.io/v1/text-to-speech"
+	elevenLabsModelID      = "eleven_flash_v2_5"
+	elevenLabsOutputFormat = "mp3_44100_128"
 )
 
-type ttsRequest struct {
-	Text          string         `json:"text"`
-	ModelID       string         `json:"model_id"`
-	VoiceSettings *voiceSettings `json:"voice_settings,omitempty"`
+type elevenLabsRequest struct {
+	Text          string                 `json:"text"`
+	ModelID       string                 `json:"model_id"`
+	VoiceSettings *elevenLabsVoiceParams `json:"voice_settings,omitempty"`
 }
 
-type voiceSettings struct {
+type elevenLabsVoiceParams struct {
 	Stability       float64 `json:"stability"`
 	SimilarityBoost float64 `json:"similarity_boost"`
 	Style           float64 `json:"style"`
@@ -42,45 +34,46 @@ type voiceSettings struct {
 	Speed           float64 `json:"speed"`
 }
 
-type RetryableError struct {
-	StatusCode int
-	Body       string
-}
-
-func (e *RetryableError) Error() string {
-	return fmt.Sprintf("ElevenLabs API error (status %d): %s", e.StatusCode, e.Body)
-}
-
-type ElevenLabsClient struct {
-	voiceAlex  string
-	voiceSam   string
+// ElevenLabsProvider implements Provider using the ElevenLabs TTS API.
+type ElevenLabsProvider struct {
+	voices     VoiceMap
 	apiKey     string
 	httpClient *http.Client
 }
 
-func NewElevenLabsClient(voiceAlex, voiceSam string) *ElevenLabsClient {
-	if voiceAlex == "" {
-		voiceAlex = DefaultVoiceAlex
+func NewElevenLabsProvider(voiceAlex, voiceSam string) *ElevenLabsProvider {
+	alexID := elevenLabsDefaultVoiceAlex
+	samID := elevenLabsDefaultVoiceSam
+	if voiceAlex != "" {
+		alexID = voiceAlex
 	}
-	if voiceSam == "" {
-		voiceSam = DefaultVoiceSam
+	if voiceSam != "" {
+		samID = voiceSam
 	}
-	return &ElevenLabsClient{
-		voiceAlex:  voiceAlex,
-		voiceSam:   voiceSam,
+	return &ElevenLabsProvider{
+		voices: VoiceMap{
+			Alex: Voice{ID: alexID, Name: "George"},
+			Sam:  Voice{ID: samID, Name: "Sarah"},
+		},
 		apiKey:     os.Getenv("ELEVENLABS_API_KEY"),
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
-func (c *ElevenLabsClient) VoiceAlexID() string { return c.voiceAlex }
-func (c *ElevenLabsClient) VoiceSamID() string  { return c.voiceSam }
+func (p *ElevenLabsProvider) Name() string { return "elevenlabs" }
 
-func (c *ElevenLabsClient) Synthesize(ctx context.Context, segment script.Segment, voiceID string) ([]byte, error) {
-	reqBody := ttsRequest{
-		Text:    segment.Text,
-		ModelID: modelID,
-		VoiceSettings: &voiceSettings{
+func (p *ElevenLabsProvider) DefaultVoices() VoiceMap {
+	return VoiceMap{
+		Alex: Voice{ID: elevenLabsDefaultVoiceAlex, Name: "George"},
+		Sam:  Voice{ID: elevenLabsDefaultVoiceSam, Name: "Sarah"},
+	}
+}
+
+func (p *ElevenLabsProvider) Synthesize(ctx context.Context, text string, voice Voice) (AudioResult, error) {
+	reqBody := elevenLabsRequest{
+		Text:    text,
+		ModelID: elevenLabsModelID,
+		VoiceSettings: &elevenLabsVoiceParams{
 			Stability:       0.5,
 			SimilarityBoost: 0.75,
 			Style:           0.0,
@@ -91,29 +84,29 @@ func (c *ElevenLabsClient) Synthesize(ctx context.Context, segment script.Segmen
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return AudioResult{}, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/%s?output_format=%s", apiBaseURL, voiceID, outputFormat)
+	url := fmt.Sprintf("%s/%s?output_format=%s", elevenLabsBaseURL, voice.ID, elevenLabsOutputFormat)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return AudioResult{}, fmt.Errorf("create request: %w", err)
 	}
 
-	req.Header.Set("xi-api-key", c.apiKey)
+	req.Header.Set("xi-api-key", p.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
+	res, err := p.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
+		return AudioResult{}, fmt.Errorf("send request: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode == http.StatusTooManyRequests ||
 		res.StatusCode >= http.StatusInternalServerError {
 		errBody, _ := io.ReadAll(res.Body)
-		return nil, &RetryableError{
+		return AudioResult{}, &RetryableError{
 			StatusCode: res.StatusCode,
 			Body:       string(errBody),
 		}
@@ -121,94 +114,30 @@ func (c *ElevenLabsClient) Synthesize(ctx context.Context, segment script.Segmen
 
 	if res.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("ElevenLabs API error (status %d): %s", res.StatusCode, string(errBody))
+		return AudioResult{}, fmt.Errorf("ElevenLabs API error (status %d): %s", res.StatusCode, string(errBody))
 	}
 
-	return io.ReadAll(res.Body)
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return AudioResult{}, fmt.Errorf("read response: %w", err)
+	}
+
+	return AudioResult{Data: data, Format: FormatMP3}, nil
 }
 
-func (c *ElevenLabsClient) SynthesizeAll(ctx context.Context, segments []script.Segment, tmpDir string) ([]string, error) {
-	total := len(segments)
-	files := make([]string, 0, total)
+func (p *ElevenLabsProvider) Close() error { return nil }
 
-	for i, seg := range segments {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		voiceID := GetVoiceID(seg.Speaker, c.voiceAlex, c.voiceSam)
-
-		// Progress output
-		pct := (i * 100) / total
-		bar := progressBar(pct, 20)
-		fmt.Printf("\r  Synthesizing audio... [%d/%d] %s %d%%", i+1, total, bar, pct)
-
-		audio, err := c.synthesizeWithRetry(ctx, seg, voiceID)
-		if err != nil {
-			fmt.Println()
-			return nil, fmt.Errorf("segment %d (%s): %w", i+1, seg.Speaker, err)
-		}
-
-		filename := filepath.Join(tmpDir, fmt.Sprintf("segment_%03d.mp3", i))
-		if err := os.WriteFile(filename, audio, 0644); err != nil {
-			fmt.Println()
-			return nil, fmt.Errorf("write segment %d: %w", i+1, err)
-		}
-
-		files = append(files, filename)
+func elevenLabsAvailableVoices() []VoiceInfo {
+	return []VoiceInfo{
+		{ID: "JBFqnCBsd6RMkjVDRZzb", Name: "George", Gender: "male", Description: "Warm British male, clear and authoritative", DefaultFor: "Alex"},
+		{ID: "EXAVITQu4vr4xnSDxMaL", Name: "Sarah", Gender: "female", Description: "Soft American female, friendly and engaging", DefaultFor: "Sam"},
+		{ID: "pNInz6obpgDQGcFmaJgB", Name: "Adam", Gender: "male", Description: "Deep American male, confident narrator"},
+		{ID: "ErXwobaYiN019PkySvjV", Name: "Antoni", Gender: "male", Description: "Young American male, conversational"},
+		{ID: "MF3mGyEYCl7XYWbV9V6O", Name: "Elli", Gender: "female", Description: "Young American female, bright and expressive"},
+		{ID: "TxGEqnHWrfWFTfGW9XjX", Name: "Josh", Gender: "male", Description: "Young American male, deep and smooth"},
+		{ID: "VR6AewLTigWG4xSOukaG", Name: "Arnold", Gender: "male", Description: "Deep gravelly male, commanding presence"},
+		{ID: "onwK4e9ZLuTAKqWW03F9", Name: "Daniel", Gender: "male", Description: "British male, authoritative news anchor"},
+		{ID: "XB0fDUnXU5powFXDhCwa", Name: "Charlotte", Gender: "female", Description: "Swedish-English female, warm and natural"},
+		{ID: "pFZP5JQG7iQjIQuC4Bku", Name: "Lily", Gender: "female", Description: "British female, warm storyteller"},
 	}
-
-	// Final progress
-	bar := progressBar(100, 20)
-	fmt.Printf("\r  Synthesizing audio... [%d/%d] %s 100%% done\n", total, total, bar)
-
-	return files, nil
-}
-
-func (c *ElevenLabsClient) synthesizeWithRetry(ctx context.Context, seg script.Segment, voiceID string) ([]byte, error) {
-	var lastErr error
-	backoff := initialBackoff
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		audio, err := c.Synthesize(ctx, seg, voiceID)
-		if err == nil {
-			return audio, nil
-		}
-
-		if _, ok := err.(*RetryableError); !ok {
-			return nil, err // Non-retryable error
-		}
-
-		lastErr = err
-		if attempt < maxAttempts {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
-			}
-			backoff *= time.Duration(backoffMulti)
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-		}
-	}
-
-	return nil, lastErr
-}
-
-func progressBar(pct, width int) string {
-	filled := (pct * width) / 100
-	if filled > width {
-		filled = width
-	}
-	empty := width - filled
-	return fmt.Sprintf("%s%s", repeat("█", filled), repeat("░", empty))
-}
-
-func repeat(s string, n int) string {
-	result := ""
-	for i := 0; i < n; i++ {
-		result += s
-	}
-	return result
 }

@@ -1,6 +1,9 @@
 package script
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const systemPrompt = `You are a podcast script writer. You create engaging two-host conversations from written content.
 
@@ -16,6 +19,11 @@ RULES:
 5. Include a clear introduction, exploration of key themes, and conclusion
 6. Each segment should be 1-3 sentences of natural speech (not paragraphs)
 7. Transitions between topics should feel organic, not forced
+8. CRITICAL: You MUST stay within the target segment count specified. Do NOT exceed the maximum. Prioritize depth on fewer topics over breadth across many.
+9. BANNED FILLER PHRASES — Never use these: "That's a great point", "Absolutely", "Exactly", "That's fascinating", "I love that", "So true", "100 percent", "You nailed it", "That's so interesting", "Right, right". Instead, react with specific, content-tied responses that show genuine engagement with the actual topic.
+10. SENTENCE VARIETY — Mix short punchy reactions (1-5 words) with longer analytical statements. Alternate between questions, declarations, anecdotes, and data points. Never repeat the same conversational pattern three times in a row.
+11. DISTINCT SPEAKING FINGERPRINTS — Alex uses analogies and connections ("It's like...", "This connects to...", "Think of it as..."). Sam uses questioning and reframing ("But what if we flip that?", "I wonder whether...", "Here's what bugs me about that...").
+12. ANTI-AI SOUND — Avoid overly smooth transitions, perfectly balanced turn-taking, and Wikipedia-summary style segments. Include natural interruptions, half-finished thoughts, mid-sentence mind-changes, and moments where a host genuinely struggles to articulate an idea.
 
 OUTPUT FORMAT:
 Return ONLY valid JSON matching this exact structure (no markdown fences, no extra text):
@@ -50,6 +58,11 @@ Convert the following content into a two-host podcast conversation.
 	}
 
 	prompt += fmt.Sprintf("TONE: %s\n\n", toneDescription(opts.Tone))
+
+	if styleDesc := styleDescription(opts.Styles); styleDesc != "" {
+		prompt += fmt.Sprintf("STYLE DIRECTIVES:\n%s\n\n", styleDesc)
+	}
+
 	prompt += fmt.Sprintf("TARGET LENGTH: %s\n\n", segmentGuidance)
 	prompt += fmt.Sprintf("SOURCE MATERIAL:\n%s", content)
 
@@ -59,12 +72,36 @@ Convert the following content into a two-host podcast conversation.
 func durationToSegments(duration string) string {
 	switch duration {
 	case "short":
-		return "15-25 segments (~5 minutes of audio)"
+		return "Exactly 30 segments (~10 minutes of audio)"
 	case "long":
-		return "60-100 segments (~20 minutes of audio)"
-	default: // medium
-		return "30-50 segments (~10 minutes of audio)"
+		return "Exactly 75 segments (~25 minutes of audio)"
+	case "deep":
+		return "Exactly 200 segments (~65 minutes of audio). This is a DEEP DIVE — cover every major point thoroughly, explore tangents, include extended exchanges."
+	default: // standard (also covers "medium" alias)
+		return "Exactly 50 segments (~15 minutes of audio)"
 	}
+}
+
+func styleDescription(styles []string) string {
+	if len(styles) == 0 {
+		return ""
+	}
+
+	descriptions := map[string]string{
+		"humor":        "Inject witty banter, clever one-liners, playful comebacks, running jokes, and lighthearted disagreements. Make listeners smile.",
+		"wow":          "Use build-up → dramatic reveal structure. Include surprise reactions ('Wait, seriously?'), mind-blown moments, and genuine awe at revelations.",
+		"serious":      "Maintain measured gravitas. Include reflective pauses, avoid jokes, convey the weight of stakes ('The implications are profound').",
+		"debate":       "Hosts should disagree, push back, present alternatives. Include passionate advocacy and occasional concessions. Real intellectual tension.",
+		"storytelling": "Build a narrative arc with suspense and foreshadowing. Use 'What happened next?' moments, vivid scene-setting, and cliffhangers between segments.",
+	}
+
+	var parts []string
+	for _, s := range styles {
+		if desc, ok := descriptions[s]; ok {
+			parts = append(parts, fmt.Sprintf("- %s: %s", strings.ToUpper(s), desc))
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func toneDescription(tone string) string {
