@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chad/podcaster/internal/script"
+	"github.com/apresai/podcaster/internal/script"
 )
 
 // AudioFormat represents the audio encoding returned by a provider.

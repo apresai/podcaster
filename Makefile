@@ -3,7 +3,7 @@
 BINARY := podcaster
 BUILD_DIR := ./bin
 VERSION := 0.1.0
-LDFLAGS := -ldflags "-s -w -X github.com/chad/podcaster/internal/cli.Version=$(VERSION)"
+LDFLAGS := -ldflags "-s -w -X github.com/apresai/podcaster/internal/cli.Version=$(VERSION)"
 
 build:
 	@mkdir -p $(BUILD_DIR)

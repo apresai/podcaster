@@ -1,4 +1,4 @@
-module github.com/chad/podcaster
+module github.com/apresai/podcaster
 
 go 1.24.0
 

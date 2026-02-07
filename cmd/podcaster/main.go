@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/chad/podcaster/internal/cli"
+	"github.com/apresai/podcaster/internal/cli"
 )
 
 func main() {

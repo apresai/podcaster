@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 
-	"github.com/chad/podcaster/internal/tts"
+	"github.com/apresai/podcaster/internal/tts"
 )
 
 func runInteractiveSetup() error {

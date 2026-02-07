@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chad/podcaster/internal/assembly"
-	"github.com/chad/podcaster/internal/ingest"
-	"github.com/chad/podcaster/internal/script"
-	"github.com/chad/podcaster/internal/tts"
+	"github.com/apresai/podcaster/internal/assembly"
+	"github.com/apresai/podcaster/internal/ingest"
+	"github.com/apresai/podcaster/internal/script"
+	"github.com/apresai/podcaster/internal/tts"
 )
 
 type Options struct {

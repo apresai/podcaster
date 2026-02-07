@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/chad/podcaster/internal/script"
+	"github.com/apresai/podcaster/internal/script"
 )
 
 const (

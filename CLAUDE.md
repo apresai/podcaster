@@ -155,4 +155,4 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 - Gemini PCM→MP3 conversion: 192kbps, soxr resampler, LAME quality 0
 - Silence between segments: 200ms
 - FFmpeg concat uses `-c copy` (no re-encoding)
-- Go module path: `github.com/chad/podcaster`
+- Go module path: `github.com/apresai/podcaster`

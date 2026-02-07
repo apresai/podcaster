@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/chad/podcaster/internal/pipeline"
-	"github.com/chad/podcaster/internal/tts"
+	"github.com/apresai/podcaster/internal/pipeline"
+	"github.com/apresai/podcaster/internal/tts"
 	"github.com/spf13/cobra"
 )
 

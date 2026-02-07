@@ -7,7 +7,7 @@ CLI tool that converts written content (URLs, PDFs, text files) into two-host po
 ```bash
 # Install dependencies
 brew install ffmpeg
-go install github.com/chad/podcaster/cmd/podcaster@latest
+go install github.com/apresai/podcaster/cmd/podcaster@latest
 
 # Set API keys
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -26,7 +26,7 @@ podcaster generate -i notes.txt -o episode.mp3
 ## Build from Source
 
 ```bash
-git clone https://github.com/chad/podcaster.git
+git clone https://github.com/apresai/podcaster.git
 cd podcaster
 make build       # Build to ./bin/podcaster
 make install     # Install to $GOPATH/bin
