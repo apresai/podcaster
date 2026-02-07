@@ -6,8 +6,8 @@ CLI tool that converts written content (URLs, PDFs, text files) into two-host po
 
 - **Language**: Go
 - **CLI framework**: cobra
-- **Script generation**: Claude API via `anthropic-sdk-go`
-- **Text-to-speech**: ElevenLabs API (`eleven_multilingual_v2`)
+- **Script generation**: Claude API via `anthropic-sdk-go`, or Gemini API via raw HTTP
+- **Text-to-speech**: Gemini TTS (default), ElevenLabs, or Google Cloud TTS
 - **Audio assembly**: FFmpeg (concat demuxer)
 - **PDF extraction**: `ledongthuc/pdf`
 - **URL extraction**: `go-shiori/go-readability`
@@ -24,11 +24,12 @@ make dev         # Build and run with sample input
 ## Running
 
 ```bash
-# Required environment variables
-export ANTHROPIC_API_KEY="sk-ant-..."
-export ELEVENLABS_API_KEY="..."
+# Required environment variables (depends on --model and --tts choices)
+export ANTHROPIC_API_KEY="sk-ant-..."   # For --model haiku/sonnet
+export GEMINI_API_KEY="..."              # For --model gemini-flash/gemini-pro or --tts gemini
+export ELEVENLABS_API_KEY="..."          # For --tts elevenlabs
 
-# Generate from URL
+# Generate from URL (defaults: --model haiku, --tts gemini)
 podcaster generate -i https://example.com/article -o episode.mp3
 
 # Generate from PDF
@@ -39,6 +40,10 @@ podcaster generate -i article.txt -o script.json --script-only
 
 # Audio from existing script
 podcaster generate --from-script script.json -o episode.mp3
+
+# Choose script generation model
+podcaster generate -i input.txt -o out.mp3 --model sonnet
+podcaster generate -i input.txt -o out.mp3 --model gemini-flash
 
 # With options
 podcaster generate -i input.txt -o out.mp3 --topic "key findings" --tone technical --duration long
@@ -57,16 +62,22 @@ podcaster/
 │   │   ├── url.go
 │   │   ├── pdf.go
 │   │   └── text.go
-│   ├── script/                  # Script generation via Claude
-│   │   ├── script.go            # Interface + types
-│   │   ├── claude.go            # Claude API client
-│   │   └── prompt.go            # Prompt templates
-│   ├── tts/                     # Text-to-speech via ElevenLabs
-│   │   ├── tts.go               # Interface
-│   │   └── elevenlabs.go        # ElevenLabs client
+│   ├── script/                  # Script generation
+│   │   ├── script.go            # Interface + types + NewGenerator factory
+│   │   ├── claude.go            # Claude API client (haiku/sonnet)
+│   │   ├── gemini.go            # Gemini API client (flash/pro)
+│   │   ├── personas.go          # Persona type + default host personalities
+│   │   └── prompt.go            # Dynamic prompt builder from personas
+│   ├── tts/                     # Text-to-speech (multi-provider)
+│   │   ├── provider.go          # Interface + factory + retry
+│   │   ├── tts.go               # Voice selection helper
+│   │   ├── elevenlabs.go        # ElevenLabs client
+│   │   ├── gemini.go            # Gemini multi-speaker TTS
+│   │   └── google.go            # Google Cloud TTS (Chirp 3 HD)
 │   └── assembly/
 │       └── ffmpeg.go            # FFmpeg audio concatenation
-├── docs/                        # PR-FAQ, PRD, SPEC
+├── docs/                        # PR-FAQ, PRD, SPEC, API reference docs
+├── .claude/skills/              # Claude Code skills (generate-persona)
 ├── go.mod
 ├── Makefile
 └── CLAUDE.md
@@ -81,12 +92,19 @@ podcaster/
 - **Retry with backoff**: All external API calls use exponential backoff (3 attempts, 1s initial, 2x multiplier)
 - **Temp file cleanup**: TTS segments go in a per-run temp dir, cleaned up via `defer os.RemoveAll()`
 
+## Persona System
+
+Host personalities are defined in `internal/script/personas.go`. Each `Persona` struct includes a backstory, speaking style, catchphrases, expertise, and an independence clause that prevents hosts from identifying with any company they discuss. The system prompt is dynamically built from persona fields via `buildSystemPrompt()` in `prompt.go`.
+
+Use `/generate-persona` to create new personas for custom voices.
+
 ## API Keys
 
-| Variable | Service | Get it at |
-|----------|---------|-----------|
-| `ANTHROPIC_API_KEY` | Claude (script generation) | https://console.anthropic.com/ |
-| `ELEVENLABS_API_KEY` | ElevenLabs (TTS) | https://elevenlabs.io/ |
+| Variable | Service | Needed when |
+|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | Claude (script gen) | `--model haiku` or `--model sonnet` |
+| `GEMINI_API_KEY` | Gemini (script gen + TTS) | `--model gemini-*` or `--tts gemini` |
+| `ELEVENLABS_API_KEY` | ElevenLabs (TTS) | `--tts elevenlabs` |
 
 ## External Dependencies
 
@@ -120,10 +138,21 @@ Input → [Ingest] → plain text → [Script Gen] → []Segment JSON → [TTS] 
 
 Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 
+## Script Generation Models
+
+| Flag value | Model ID | Provider |
+|------------|----------|----------|
+| `haiku` (default) | `claude-haiku-4-5-20251001` | Anthropic |
+| `sonnet` | `claude-sonnet-4-5-20250929` | Anthropic |
+| `gemini-flash` | `gemini-2.5-flash` | Google |
+| `gemini-pro` | `gemini-2.5-pro` | Google |
+
 ## Development Notes
 
-- Model for script gen: `claude-sonnet-4-5-20250929`
-- TTS output format: `mp3_44100_128` (44.1kHz, 128kbps)
+- Default script model: Haiku 4.5 (`--model haiku`)
+- Default TTS provider: Gemini (`--tts gemini`)
+- ElevenLabs output format: `mp3_44100_192` (44.1kHz, 192kbps)
+- Gemini PCM→MP3 conversion: 192kbps, soxr resampler, LAME quality 0
 - Silence between segments: 200ms
 - FFmpeg concat uses `-c copy` (no re-encoding)
-- Go module path: likely `github.com/chad/podcaster` (update after repo creation)
+- Go module path: `github.com/chad/podcaster`

@@ -5,16 +5,36 @@ import (
 	"strings"
 )
 
-const systemPrompt = `You are a podcast script writer. You create engaging two-host conversations from written content.
+func buildSystemPrompt(alex, sam Persona) string {
+	return fmt.Sprintf(`You are a podcast script writer. You create engaging two-host conversations from written content.
 
 HOSTS:
-- Alex (Host): Drives the conversation. Introduces topics, provides context, makes connections between ideas. Speaks with enthusiasm and clarity. Uses analogies to explain complex concepts. Warm and inviting tone.
-- Sam (Analyst): Asks probing questions. Challenges assumptions, adds depth, plays devil's advocate when appropriate. More measured and analytical tone. Brings up counterpoints and edge cases.
+
+%s (%s) — %s
+Background: %s
+Role: %s
+Speaking style: %s
+Signature phrases: %s
+Expertise: %s
+Co-host dynamic: %s
+
+%s (%s) — %s
+Background: %s
+Role: %s
+Speaking style: %s
+Signature phrases: %s
+Expertise: %s
+Co-host dynamic: %s
+
+CRITICAL RULE — EDITORIAL INDEPENDENCE:
+%s
+%s
+These hosts are independent commentators. They discuss companies and products from the OUTSIDE. Any slip into first-person identification with a subject ("we launched", "our platform") is a serious error.
 
 RULES:
 1. The conversation must be based on the source material — do not hallucinate facts
-2. Both hosts must participate throughout — neither should dominate (each gets at least 30% of segments)
-3. Alex drives topics forward; Sam probes, questions, and adds depth
+2. Both hosts must participate throughout — neither should dominate (each gets at least 30%% of segments)
+3. %s drives topics forward; %s probes, questions, and adds depth
 4. Use natural conversational language — contractions, informal phrasing, brief reactions
 5. Include a clear introduction, exploration of key themes, and conclusion
 6. Each segment should be 1-3 sentences of natural speech (not paragraphs)
@@ -22,7 +42,7 @@ RULES:
 8. CRITICAL: You MUST stay within the target segment count specified. Do NOT exceed the maximum. Prioritize depth on fewer topics over breadth across many.
 9. BANNED FILLER PHRASES — Never use these: "That's a great point", "Absolutely", "Exactly", "That's fascinating", "I love that", "So true", "100 percent", "You nailed it", "That's so interesting", "Right, right". Instead, react with specific, content-tied responses that show genuine engagement with the actual topic.
 10. SENTENCE VARIETY — Mix short punchy reactions (1-5 words) with longer analytical statements. Alternate between questions, declarations, anecdotes, and data points. Never repeat the same conversational pattern three times in a row.
-11. DISTINCT SPEAKING FINGERPRINTS — Alex uses analogies and connections ("It's like...", "This connects to...", "Think of it as..."). Sam uses questioning and reframing ("But what if we flip that?", "I wonder whether...", "Here's what bugs me about that...").
+11. DISTINCT SPEAKING FINGERPRINTS — Each host must sound like themselves. Use their signature phrases and speaking patterns described above.
 12. ANTI-AI SOUND — Avoid overly smooth transitions, perfectly balanced turn-taking, and Wikipedia-summary style segments. Include natural interruptions, half-finished thoughts, mid-sentence mind-changes, and moments where a host genuinely struggles to articulate an idea.
 
 OUTPUT FORMAT:
@@ -31,12 +51,32 @@ Return ONLY valid JSON matching this exact structure (no markdown fences, no ext
   "title": "Episode title that captures the main topic",
   "summary": "One sentence summary of what the hosts discuss",
   "segments": [
-    {"speaker": "Alex", "text": "Welcome to the show..."},
-    {"speaker": "Sam", "text": "Thanks Alex..."}
+    {"speaker": "%s", "text": "Welcome to the show..."},
+    {"speaker": "%s", "text": "Thanks %s..."}
   ]
 }
 
-IMPORTANT: Output raw JSON only. No markdown code fences. No text before or after the JSON.`
+IMPORTANT: Output raw JSON only. No markdown code fences. No text before or after the JSON.`,
+		alex.Name, alex.FullName, alex.Role,
+		alex.Background,
+		alex.Role,
+		alex.SpeakingStyle,
+		alex.Catchphrases,
+		alex.Expertise,
+		alex.Relationship,
+		sam.Name, sam.FullName, sam.Role,
+		sam.Background,
+		sam.Role,
+		sam.SpeakingStyle,
+		sam.Catchphrases,
+		sam.Expertise,
+		sam.Relationship,
+		alex.Independence,
+		sam.Independence,
+		alex.Name, sam.Name,
+		alex.Name, sam.Name, alex.Name,
+	)
+}
 
 func buildUserPrompt(content string, opts GenerateOptions) string {
 	segmentGuidance := durationToSegments(opts.Duration)

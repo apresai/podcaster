@@ -30,6 +30,7 @@ type Options struct {
 	FromScript  string
 	Verbose     bool
 	TTSProvider string
+	Model       string
 }
 
 type PipelineError struct {
@@ -95,12 +96,17 @@ func Run(ctx context.Context, opts Options) error {
 		// Stage 2: Script Generation
 		stageStart = time.Now()
 		fmt.Printf("  Generating script...")
-		gen := script.NewClaudeGenerator()
+		gen, err := script.NewGenerator(opts.Model)
+		if err != nil {
+			fmt.Println(" failed")
+			return &PipelineError{Stage: "script", Message: "failed to create script generator", Err: err}
+		}
 		genOpts := script.GenerateOptions{
 			Topic:    opts.Topic,
 			Tone:     opts.Tone,
 			Duration: opts.Duration,
 			Styles:   opts.Styles,
+			Model:    opts.Model,
 		}
 		s, err = gen.Generate(ctx, content.Text, genOpts)
 		if err != nil {
@@ -110,7 +116,7 @@ func Run(ctx context.Context, opts Options) error {
 		fmt.Printf(" done (%d segments, ~%d min)\n", len(s.Segments), estimateMinutes(s))
 
 		if opts.Verbose {
-			fmt.Printf("    Model: %s\n", "claude-sonnet-4-5-20250929")
+			fmt.Printf("    Model: %s\n", script.ModelDisplayName(opts.Model))
 			fmt.Printf("    Script gen time: %s\n", time.Since(stageStart).Round(time.Millisecond))
 		}
 	}

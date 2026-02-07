@@ -17,7 +17,7 @@ const (
 
 	elevenLabsBaseURL      = "https://api.elevenlabs.io/v1/text-to-speech"
 	elevenLabsModelID      = "eleven_flash_v2_5"
-	elevenLabsOutputFormat = "mp3_44100_128"
+	elevenLabsOutputFormat = "mp3_44100_192"
 )
 
 type elevenLabsRequest struct {

@@ -53,6 +53,7 @@ var (
 	flagFromScript  string
 	flagVerbose     bool
 	flagTTS         string
+	flagModel       string
 	flagInteractive bool
 )
 
@@ -60,7 +61,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(listVoicesCmd)
-	listVoicesCmd.Flags().StringVar(&flagListVoicesTTS, "tts", "elevenlabs", "TTS provider: elevenlabs, google, or gemini")
+	listVoicesCmd.Flags().StringVar(&flagListVoicesTTS, "tts", "gemini", "TTS provider: elevenlabs, google, or gemini (default gemini)")
 
 	generateCmd.Flags().StringVarP(&flagInput, "input", "i", "", "Source content (URL, PDF path, or text file path)")
 	generateCmd.Flags().StringVarP(&flagOutput, "output", "o", "", "Output file path (MP3 or JSON with --script-only)")
@@ -74,7 +75,8 @@ func init() {
 	generateCmd.Flags().StringVar(&flagFromScript, "from-script", "", "Generate audio from an existing script JSON file")
 	generateCmd.Flags().BoolVar(&flagVerbose, "verbose", false, "Enable detailed logging")
 	generateCmd.Flags().BoolVar(&flagInteractive, "interactive", false, "Interactive setup wizard for generation options")
-	generateCmd.Flags().StringVar(&flagTTS, "tts", "elevenlabs", "TTS provider: elevenlabs, google, or gemini")
+	generateCmd.Flags().StringVar(&flagTTS, "tts", "gemini", "TTS provider: elevenlabs, google, or gemini (default gemini)")
+	generateCmd.Flags().StringVar(&flagModel, "model", "haiku", "Script generation model: haiku, sonnet, gemini-flash, gemini-pro")
 }
 
 func Execute() error {
@@ -134,8 +136,14 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid TTS provider %q: must be elevenlabs, google, or gemini", flagTTS)
 	}
 
+	// Validate model
+	validModels := map[string]bool{"haiku": true, "sonnet": true, "gemini-flash": true, "gemini-pro": true}
+	if !validModels[flagModel] {
+		return fmt.Errorf("invalid model %q: must be haiku, sonnet, gemini-flash, or gemini-pro", flagModel)
+	}
+
 	// Check API keys
-	if err := checkAPIKeys(flagTTS); err != nil {
+	if err := checkAPIKeys(flagTTS, flagModel); err != nil {
 		return err
 	}
 
@@ -159,6 +167,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		FromScript:  flagFromScript,
 		Verbose:     flagVerbose,
 		TTSProvider: flagTTS,
+		Model:       flagModel,
 	}
 
 	return pipeline.Run(cmd.Context(), opts)
@@ -184,12 +193,19 @@ func runListVoices(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func checkAPIKeys(ttsProvider string) error {
+func checkAPIKeys(ttsProvider, model string) error {
 	var missing []string
 
 	if flagFromScript == "" {
-		if os.Getenv("ANTHROPIC_API_KEY") == "" {
-			missing = append(missing, "ANTHROPIC_API_KEY")
+		switch {
+		case model == "haiku" || model == "sonnet":
+			if os.Getenv("ANTHROPIC_API_KEY") == "" {
+				missing = append(missing, "ANTHROPIC_API_KEY")
+			}
+		case model == "gemini-flash" || model == "gemini-pro":
+			if os.Getenv("GEMINI_API_KEY") == "" {
+				missing = append(missing, "GEMINI_API_KEY")
+			}
 		}
 	}
 

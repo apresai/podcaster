@@ -11,8 +11,12 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
+var claudeModels = map[string]string{
+	"haiku":  "claude-haiku-4-5-20251001",
+	"sonnet": "claude-sonnet-4-5-20250929",
+}
+
 const (
-	claudeModel    = "claude-sonnet-4-5-20250929"
 	temperature    = 0.7
 	maxRetries     = 3
 	initialBackoff = 1 * time.Second
@@ -30,16 +34,24 @@ func maxTokensForDuration(duration string) int64 {
 	}
 }
 
-type ClaudeGenerator struct{}
+type ClaudeGenerator struct {
+	model string
+}
 
-func NewClaudeGenerator() *ClaudeGenerator {
-	return &ClaudeGenerator{}
+func NewClaudeGenerator(model string) *ClaudeGenerator {
+	return &ClaudeGenerator{model: model}
 }
 
 func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts GenerateOptions) (*Script, error) {
 	client := anthropic.NewClient()
 
+	sysPrompt := buildSystemPrompt(DefaultAlexPersona, DefaultSamPersona)
 	userPrompt := buildUserPrompt(content, opts)
+
+	modelID := claudeModels[g.model]
+	if modelID == "" {
+		modelID = claudeModels["haiku"]
+	}
 
 	var lastErr error
 	backoff := initialBackoff
@@ -50,11 +62,11 @@ func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts Gen
 		}
 
 		message, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-			Model:     claudeModel,
+			Model:     anthropic.Model(modelID),
 			MaxTokens: maxTokensForDuration(opts.Duration),
 			Temperature: anthropic.Float(temperature),
 			System: []anthropic.TextBlockParam{
-				{Text: systemPrompt},
+				{Text: sysPrompt},
 			},
 			Messages: []anthropic.MessageParam{
 				anthropic.NewUserMessage(anthropic.NewTextBlock(userPrompt)),

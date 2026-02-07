@@ -50,7 +50,7 @@ func generateSilence(ctx context.Context, output string) error {
 		"-i", "anullsrc=r=44100:cl=stereo",
 		"-t", "0.2",
 		"-c:a", "libmp3lame",
-		"-b:a", "128k",
+		"-b:a", "192k",
 		"-y",
 		output,
 	)
@@ -94,8 +94,10 @@ func ConvertToMP3(ctx context.Context, input string, format string, output strin
 			"-ar", "24000",
 			"-ac", "1",
 			"-i", input,
+			"-af", "aresample=resampler=soxr",
 			"-c:a", "libmp3lame",
-			"-b:a", "128k",
+			"-b:a", "192k",
+			"-q:a", "0",
 			"-ar", "44100",
 			"-ac", "2",
 			"-y",
@@ -104,8 +106,10 @@ func ConvertToMP3(ctx context.Context, input string, format string, output strin
 	case "wav":
 		args = []string{
 			"-i", input,
+			"-af", "aresample=resampler=soxr",
 			"-c:a", "libmp3lame",
-			"-b:a", "128k",
+			"-b:a", "192k",
+			"-q:a", "0",
 			"-ar", "44100",
 			"-ac", "2",
 			"-y",
