@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -30,7 +31,8 @@ func (u *URLIngester) Ingest(ctx context.Context, source string) (*Content, erro
 		return nil, fmt.Errorf("could not fetch URL %s: HTTP %d", source, resp.StatusCode)
 	}
 
-	article, err := readability.FromReader(resp.Body, parsed)
+	limited := io.LimitReader(resp.Body, maxInputSize)
+	article, err := readability.FromReader(limited, parsed)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract article from %s: %w", source, err)
 	}

@@ -13,6 +13,9 @@ const (
 	SourceURL  SourceType = "url"
 	SourcePDF  SourceType = "pdf"
 	SourceText SourceType = "text"
+
+	// maxInputSize is the maximum allowed size for input content (25 MB).
+	maxInputSize = 25 * 1024 * 1024
 )
 
 func (s SourceType) String() string {
@@ -87,6 +90,9 @@ func validateFile(path string) error {
 	}
 	if info.IsDir() {
 		return fmt.Errorf("%s is a directory, not a file", path)
+	}
+	if info.Size() > maxInputSize {
+		return fmt.Errorf("%s is too large (%d MB, max %d MB)", path, info.Size()/(1024*1024), maxInputSize/(1024*1024))
 	}
 	return nil
 }
