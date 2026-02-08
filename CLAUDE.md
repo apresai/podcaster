@@ -147,6 +147,40 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 | `gemini-flash` | `gemini-2.5-flash` | Google |
 | `gemini-pro` | `gemini-2.5-pro` | Google |
 
+## MCP Server
+
+Remote MCP server deployed on AWS Bedrock AgentCore. Runs the pipeline as a goroutine, tracks via DynamoDB, uploads MP3 to S3, served via CloudFront CDN.
+
+### Local Testing
+
+```bash
+# Run MCP server locally (uses env vars for API keys, AWS creds for DynamoDB/S3)
+S3_BUCKET=apresai-podcasts-228029809749 DYNAMODB_TABLE=apresai-podcasts-prod \
+  SECRET_PREFIX="" go run ./cmd/mcp-server
+
+# Test via curl (MCP StreamableHTTP on port 8000)
+# 1. Initialize
+curl -s http://localhost:8000/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test"},"capabilities":{}}}' -H 'Content-Type: application/json'
+
+# 2. Call generate_podcast (use gemini-flash + short to minimize cost)
+curl -s http://localhost:8000/mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"generate_podcast","arguments":{"input_url":"https://example.com","model":"gemini-flash","duration":"short"}}}' -H 'Content-Type: application/json' -H 'Mcp-Session-Id: <session_id_from_init>'
+
+# 3. Poll get_podcast
+curl -s http://localhost:8000/mcp -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_podcast","arguments":{"podcast_id":"<id>"}}}' -H 'Content-Type: application/json' -H 'Mcp-Session-Id: <session_id>'
+```
+
+**Cost-saving tip**: Use `gemini-flash` model + `short` duration for testing. This uses only Gemini API (no Anthropic costs) and generates ~8min/30 segments.
+
+### Deployment
+
+```bash
+make docker-build && make docker-push   # Build + push ARM64 container to ECR
+make deploy-infra                        # CDK deploy (ECR, CloudFront, Lambda, IAM)
+make deploy-agentcore                    # Register with AgentCore (first time)
+make update-agentcore                    # Update container image (subsequent deploys)
+make create-secrets                      # Store API keys in Secrets Manager
+```
+
 ## Development Notes
 
 - Default script model: Haiku 4.5 (`--model haiku`)
