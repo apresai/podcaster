@@ -24,7 +24,8 @@ type GenerateOptions struct {
 	Duration string
 	Styles   []string
 	Model    string
-	Voices   int // 1-3, defaults to 2 if 0
+	Voices   int    // 1-3, defaults to 2 if 0
+	Format   string // show format: conversation, interview, debate, etc.
 }
 
 type Generator interface {

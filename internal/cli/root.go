@@ -9,6 +9,7 @@ import (
 
 	"github.com/apresai/podcaster/internal/pipeline"
 	"github.com/apresai/podcaster/internal/progress"
+	"github.com/apresai/podcaster/internal/script"
 	"github.com/apresai/podcaster/internal/tts"
 	"github.com/spf13/cobra"
 )
@@ -51,6 +52,7 @@ var (
 	flagTone         string
 	flagDuration     string
 	flagStyle        string
+	flagFormat       string
 	flagVoice1       string
 	flagVoice2       string
 	flagVoice3       string
@@ -75,8 +77,9 @@ func init() {
 	generateCmd.Flags().StringVarP(&flagOutput, "output", "o", "", "Output file path (MP3)")
 	generateCmd.Flags().StringVarP(&flagTopic, "topic", "p", "", "Focus the conversation on a specific topic")
 	generateCmd.Flags().StringVarP(&flagTone, "tone", "n", "casual", "Conversation tone: casual, technical, educational")
-	generateCmd.Flags().StringVarP(&flagDuration, "duration", "d", "standard", "Target duration: short (~30 segs), standard (~50), long (~75), deep (~200)")
+	generateCmd.Flags().StringVarP(&flagDuration, "duration", "d", "standard", "Target duration: short (~30 segs), standard (~60), long (~100), deep (~200)")
 	generateCmd.Flags().StringVarP(&flagStyle, "style", "s", "", "Conversation styles (comma-separated): humor, wow, serious, debate, storytelling")
+	generateCmd.Flags().StringVarP(&flagFormat, "format", "F", "conversation", "Show format: conversation, interview, deep-dive, explainer, debate, news, storytelling, challenger")
 	generateCmd.Flags().StringVarP(&flagVoice1, "voice1", "1", "", "Voice for host 1 / Alex (provider:voiceID or plain voiceID)")
 	generateCmd.Flags().StringVarP(&flagVoice2, "voice2", "2", "", "Voice for host 2 / Sam (provider:voiceID or plain voiceID)")
 	generateCmd.Flags().StringVarP(&flagVoice3, "voice3", "3", "", "Voice for host 3 / Jordan (provider:voiceID or plain voiceID)")
@@ -112,8 +115,10 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if flagFromScript != "" && flagInput != "" {
 		return fmt.Errorf("--input and --from-script are mutually exclusive")
 	}
-	if flagOutput == "" {
-		return fmt.Errorf("--output (-o) is required")
+
+	// Validate format
+	if !script.IsValidFormat(flagFormat) {
+		return fmt.Errorf("invalid format %q: must be one of %s", flagFormat, strings.Join(script.FormatNames(), ", "))
 	}
 
 	// Validate tone
@@ -236,8 +241,12 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Route output to podcaster-output/episodes/
-	outputPath := filepath.Join(pipeline.OutputBaseDir, "episodes", filepath.Base(flagOutput))
+	// Route output to podcaster-output/episodes/ (empty = auto-name after script gen)
+	var outputPath, logFile string
+	if flagOutput != "" {
+		outputPath = filepath.Join(pipeline.OutputBaseDir, "episodes", filepath.Base(flagOutput))
+		logFile = pipeline.LogFilePath(flagOutput)
+	}
 
 	opts := pipeline.Options{
 		Input:          flagInput,
@@ -245,6 +254,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		Topic:          flagTopic,
 		Tone:           flagTone,
 		Duration:       flagDuration,
+		Format:         flagFormat,
 		Styles:         styles,
 		Voice1:         v1ID,
 		Voice1Provider: v1Provider,
@@ -258,7 +268,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		Verbose:        flagVerbose,
 		DefaultTTS:     flagTTS,
 		Model:          flagModel,
-		LogFile:        pipeline.LogFilePath(flagOutput),
+		LogFile:        logFile,
 		TTSModel:       flagTTSModel,
 		TTSSpeed:       flagTTSSpeed,
 		TTSStability:   flagTTSStability,

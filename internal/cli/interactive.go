@@ -2,23 +2,29 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/apresai/podcaster/internal/pipeline"
+	"github.com/apresai/podcaster/internal/script"
 	"github.com/apresai/podcaster/internal/tts"
 )
 
 // menuItem represents a single configurable option in the TUI.
 type menuItem struct {
-	label    string
-	value    string
-	options  []menuOption
-	required bool
-	editing  bool
-	cursor   int // cursor within options when editing
+	label     string
+	value     string
+	options   []menuOption
+	required  bool
+	editing   bool
+	cursor    int  // cursor within options when editing
+	separator bool // if true, render as a section divider (not selectable)
 }
 
 type menuOption struct {
@@ -33,6 +39,7 @@ const (
 	stateMenu menuState = iota
 	stateEditing
 	stateStylePicker
+	stateInputPicker
 )
 
 // tuiModel is the Bubble Tea model for the interactive menu.
@@ -47,6 +54,7 @@ type tuiModel struct {
 	styles      map[string]bool // for multi-select style picker
 	styleCursor int
 	voiceCount  int // 1-3
+	inputCursor int // cursor for input type picker
 }
 
 // style constants
@@ -84,6 +92,9 @@ var (
 				Bold(true).
 				PaddingLeft(2)
 
+	dimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#555555"))
+
 	buttonStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FAFAFA")).
@@ -108,32 +119,34 @@ var (
 			BorderForeground(lipgloss.Color("#7D56F4")).
 			MarginBottom(1).
 			PaddingBottom(0)
+
+	separatorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7D56F4")).
+			Bold(true)
 )
 
-// menu item indices — dynamic voice items shift based on voice count
+// New TUI layout: content first, audio second
 const (
-	idxInput        = 0
-	idxOutput       = 1
-	idxTopic        = 2
-	idxModel        = 3
-	idxTTS          = 4
-	idxTTSModel     = 5
-	idxTTSSpeed     = 6
-	idxTTSStability = 7
-	idxTTSPitch     = 8
-	idxTone         = 9
-	idxDuration     = 10
-	idxStyle        = 11
-	idxVoices       = 12
-	idxVoice1       = 13
-	idxVoice2       = 14
-	// idxVoice3 = 15 when voiceCount >= 3
-	// idxGenerate = last item
+	idxInput    = 0
+	idxOutput   = 1
+	idxTopic    = 2
+	idxFormat   = 3
+	idxTone     = 4
+	idxDuration = 5
+	idxStyle    = 6
+	idxModel    = 7
+	idxVoices   = 8
+	idxVoice1   = 9
+	idxVoice2   = 10
+	// idxVoice3 = 11 when voiceCount >= 3
+	// idxSeparator = 11 or 12 (non-selectable)
+	// idxProvider = 12 or 13
+	// idxTTSModel = 13 or 14
+	// etc.
 )
 
-func defaultOutputFilename() string {
-	return time.Now().Format("podcast-20060102-1504.mp3")
-}
+// maxVisibleOptions is the max number of options shown before scrolling kicks in.
+const maxVisibleOptions = 10
 
 // formatFloat returns an empty string for zero (meaning "default"), otherwise a compact string.
 func formatFloat(f float64) string {
@@ -153,6 +166,39 @@ func parseFloat(s string) float64 {
 	return f
 }
 
+// buildVoiceOptionsForProvider returns voice options filtered by provider.
+// If provider is "auto" or empty, returns all providers with prefixes.
+func buildVoiceOptionsForProvider(provider string) (opts []menuOption, defaultV1, defaultV2, defaultV3 string) {
+	if provider == "auto" || provider == "" {
+		return buildAllVoiceOptions()
+	}
+
+	// Single provider — no prefix needed
+	voices, err := tts.AvailableVoices(provider)
+	if err != nil {
+		return buildAllVoiceOptions()
+	}
+
+	prefixMap := map[string]string{"gemini": "GEM", "elevenlabs": "ELV", "google": "GOO"}
+	prefix := prefixMap[provider]
+
+	for _, v := range voices {
+		label := fmt.Sprintf("[%s] %s - %s (%s)", prefix, v.Name, v.Description, v.Gender)
+		value := provider + ":" + v.ID
+		opts = append(opts, menuOption{label: label, value: value})
+		if v.DefaultFor == "Voice 1" {
+			defaultV1 = value
+		}
+		if v.DefaultFor == "Voice 2" {
+			defaultV2 = value
+		}
+		if v.DefaultFor == "Voice 3" {
+			defaultV3 = value
+		}
+	}
+	return
+}
+
 // buildAllVoiceOptions returns voice options from all TTS providers, grouped
 // by provider with [GEM]/[ELV]/[GOO] prefixes. Values use provider:voiceID format.
 func buildAllVoiceOptions() (opts []menuOption, defaultV1, defaultV2, defaultV3 string) {
@@ -166,6 +212,11 @@ func buildAllVoiceOptions() (opts []menuOption, defaultV1, defaultV2, defaultV3 
 		{"google", "GOO"},
 	}
 
+	effectiveTTS := flagTTS
+	if effectiveTTS == "auto" {
+		effectiveTTS = "gemini"
+	}
+
 	for _, p := range providers {
 		voices, err := tts.AvailableVoices(p.name)
 		if err != nil {
@@ -175,13 +226,13 @@ func buildAllVoiceOptions() (opts []menuOption, defaultV1, defaultV2, defaultV3 
 			label := fmt.Sprintf("[%s] %s - %s (%s)", p.prefix, v.Name, v.Description, v.Gender)
 			value := p.name + ":" + v.ID
 			opts = append(opts, menuOption{label: label, value: value})
-			if v.DefaultFor == "Voice 1" && p.name == flagTTS {
+			if v.DefaultFor == "Voice 1" && p.name == effectiveTTS {
 				defaultV1 = value
 			}
-			if v.DefaultFor == "Voice 2" && p.name == flagTTS {
+			if v.DefaultFor == "Voice 2" && p.name == effectiveTTS {
 				defaultV2 = value
 			}
-			if v.DefaultFor == "Voice 3" && p.name == flagTTS {
+			if v.DefaultFor == "Voice 3" && p.name == effectiveTTS {
 				defaultV3 = value
 			}
 		}
@@ -191,6 +242,9 @@ func buildAllVoiceOptions() (opts []menuOption, defaultV1, defaultV2, defaultV3 
 
 // ttsModelOptions returns the TTS model choices for a given provider.
 func ttsModelOptions(provider string) []menuOption {
+	if provider == "auto" {
+		provider = "gemini"
+	}
 	switch provider {
 	case "elevenlabs":
 		return []menuOption{
@@ -213,6 +267,9 @@ func ttsModelOptions(provider string) []menuOption {
 
 // defaultTTSModel returns the default TTS model for a provider.
 func defaultTTSModel(provider string) string {
+	if provider == "auto" {
+		provider = "gemini"
+	}
 	switch provider {
 	case "elevenlabs":
 		return "eleven_v3"
@@ -225,6 +282,9 @@ func defaultTTSModel(provider string) string {
 
 // ttsSpeedOptions returns speed presets for a given provider.
 func ttsSpeedOptions(provider string) []menuOption {
+	if provider == "auto" {
+		provider = "gemini"
+	}
 	switch provider {
 	case "elevenlabs":
 		return []menuOption{
@@ -253,6 +313,9 @@ func ttsSpeedOptions(provider string) []menuOption {
 
 // ttsStabilityOptions returns stability presets (ElevenLabs only).
 func ttsStabilityOptions(provider string) []menuOption {
+	if provider == "auto" {
+		provider = "gemini"
+	}
 	if provider != "elevenlabs" {
 		return []menuOption{
 			{label: "Not supported (" + provider + ")", value: ""},
@@ -270,6 +333,9 @@ func ttsStabilityOptions(provider string) []menuOption {
 
 // ttsPitchOptions returns pitch presets (Google only).
 func ttsPitchOptions(provider string) []menuOption {
+	if provider == "auto" {
+		provider = "gemini"
+	}
 	if provider != "google" {
 		return []menuOption{
 			{label: "Not supported (" + provider + ")", value: ""},
@@ -286,34 +352,87 @@ func ttsPitchOptions(provider string) []menuOption {
 	}
 }
 
-func buildMenuItems(voiceCount int) []menuItem {
-	voiceOpts, defaultV1, defaultV2, defaultV3 := buildAllVoiceOptions()
-
-	// Use existing flag values or sensible defaults
-	outputVal := flagOutput
-	if outputVal == "" {
-		outputVal = defaultOutputFilename()
+// formatOptions returns the show format choices.
+func formatOptions() []menuOption {
+	var opts []menuOption
+	for _, name := range script.FormatNames() {
+		label := script.FormatLabel(name)
+		if name == "conversation" {
+			label += " (default)"
+		}
+		opts = append(opts, menuOption{label: label, value: name})
 	}
+	return opts
+}
+
+func buildMenuItems(voiceCount int) []menuItem {
+	effectiveProvider := flagTTS
+	if effectiveProvider == "" {
+		effectiveProvider = "auto"
+	}
+
+	voiceOpts, defaultV1, defaultV2, defaultV3 := buildVoiceOptionsForProvider(effectiveProvider)
 
 	ttsModelVal := flagTTSModel
 	if ttsModelVal == "" {
-		ttsModelVal = defaultTTSModel(flagTTS)
+		ttsModelVal = defaultTTSModel(effectiveProvider)
+	}
+
+	formatVal := flagFormat
+	if formatVal == "" {
+		formatVal = "conversation"
 	}
 
 	items := []menuItem{
+		// 0: Input
 		{
 			label:    "Input",
 			value:    flagInput,
 			required: true,
 		},
+		// 1: Output
 		{
 			label: "Output",
-			value: outputVal,
+			value: flagOutput,
 		},
+		// 2: Topic
 		{
 			label: "Topic",
 			value: flagTopic,
 		},
+		// 3: Format
+		{
+			label:   "Format",
+			value:   formatVal,
+			options: formatOptions(),
+		},
+		// 4: Tone
+		{
+			label: "Tone",
+			value: flagTone,
+			options: []menuOption{
+				{label: "Casual - light and engaging (default)", value: "casual"},
+				{label: "Technical - precise, domain-specific", value: "technical"},
+				{label: "Educational - accessible, builds understanding", value: "educational"},
+			},
+		},
+		// 5: Duration
+		{
+			label: "Duration",
+			value: flagDuration,
+			options: []menuOption{
+				{label: "Short (~30 segments, ~8 min)", value: "short"},
+				{label: "Standard (~60 segments, ~18 min) (default)", value: "standard"},
+				{label: "Long (~100 segments, ~35 min)", value: "long"},
+				{label: "Deep Dive (~200 segments, ~55 min)", value: "deep"},
+			},
+		},
+		// 6: Styles
+		{
+			label: "Styles",
+			value: flagStyle,
+		},
+		// 7: Model
 		{
 			label: "Model",
 			value: flagModel,
@@ -324,58 +443,7 @@ func buildMenuItems(voiceCount int) []menuItem {
 				{label: "Gemini Pro (powerful)", value: "gemini-pro"},
 			},
 		},
-		{
-			label: "Default Provider",
-			value: flagTTS,
-			options: []menuOption{
-				{label: "Gemini (multi-speaker batch) (default)", value: "gemini"},
-				{label: "ElevenLabs (premium voices)", value: "elevenlabs"},
-				{label: "Google Cloud TTS (Chirp 3 HD)", value: "google"},
-			},
-		},
-		{
-			label:   "TTS Model",
-			value:   ttsModelVal,
-			options: ttsModelOptions(flagTTS),
-		},
-		{
-			label:   "TTS Speed",
-			value:   formatFloat(flagTTSSpeed),
-			options: ttsSpeedOptions(flagTTS),
-		},
-		{
-			label:   "TTS Stability",
-			value:   formatFloat(flagTTSStability),
-			options: ttsStabilityOptions(flagTTS),
-		},
-		{
-			label:   "TTS Pitch",
-			value:   formatFloat(flagTTSPitch),
-			options: ttsPitchOptions(flagTTS),
-		},
-		{
-			label: "Tone",
-			value: flagTone,
-			options: []menuOption{
-				{label: "Casual - light and engaging (default)", value: "casual"},
-				{label: "Technical - precise, domain-specific", value: "technical"},
-				{label: "Educational - accessible, builds understanding", value: "educational"},
-			},
-		},
-		{
-			label: "Duration",
-			value: flagDuration,
-			options: []menuOption{
-				{label: "Short (~30 segments, ~10 min)", value: "short"},
-				{label: "Standard (~50 segments, ~15 min) (default)", value: "standard"},
-				{label: "Long (~75 segments, ~25 min)", value: "long"},
-				{label: "Deep Dive (~200 segments, ~65 min)", value: "deep"},
-			},
-		},
-		{
-			label: "Styles",
-			value: flagStyle,
-		},
+		// 8: Voices
 		{
 			label: "Voices",
 			value: fmt.Sprintf("%d", voiceCount),
@@ -385,11 +453,13 @@ func buildMenuItems(voiceCount int) []menuItem {
 				{label: "3 - Roundtable (Alex, Sam & Jordan)", value: "3"},
 			},
 		},
+		// 9: Voice 1
 		{
 			label:   "Voice 1 (Alex)",
 			value:   defaultV1,
 			options: voiceOpts,
 		},
+		// 10: Voice 2
 		{
 			label:   "Voice 2 (Sam)",
 			value:   defaultV2,
@@ -405,6 +475,52 @@ func buildMenuItems(voiceCount int) []menuItem {
 			options: voiceOpts,
 		})
 	}
+
+	// Audio Settings separator
+	items = append(items, menuItem{
+		label:     "Audio Settings",
+		separator: true,
+	})
+
+	// Provider
+	items = append(items, menuItem{
+		label: "Provider",
+		value: effectiveProvider,
+		options: []menuOption{
+			{label: "Auto (from voice selection) (default)", value: "auto"},
+			{label: "Gemini (multi-speaker batch)", value: "gemini"},
+			{label: "ElevenLabs (premium voices)", value: "elevenlabs"},
+			{label: "Google Cloud TTS (Chirp 3 HD)", value: "google"},
+		},
+	})
+
+	// TTS Model
+	items = append(items, menuItem{
+		label:   "TTS Model",
+		value:   ttsModelVal,
+		options: ttsModelOptions(effectiveProvider),
+	})
+
+	// TTS Speed
+	items = append(items, menuItem{
+		label:   "TTS Speed",
+		value:   formatFloat(flagTTSSpeed),
+		options: ttsSpeedOptions(effectiveProvider),
+	})
+
+	// TTS Stability
+	items = append(items, menuItem{
+		label:   "TTS Stability",
+		value:   formatFloat(flagTTSStability),
+		options: ttsStabilityOptions(effectiveProvider),
+	})
+
+	// TTS Pitch
+	items = append(items, menuItem{
+		label:   "TTS Pitch",
+		value:   formatFloat(flagTTSPitch),
+		options: ttsPitchOptions(effectiveProvider),
+	})
 
 	// Generate button at the end
 	items = append(items, menuItem{
@@ -452,6 +568,36 @@ func (m tuiModel) isTextInput(idx int) bool {
 	return idx == idxInput || idx == idxOutput || idx == idxTopic
 }
 
+// providerIdx returns the index of the Provider field.
+func (m tuiModel) providerIdx() int {
+	// Provider is after the separator, which is after voice items
+	base := idxVoice2 + 1
+	if m.voiceCount >= 3 {
+		base++
+	}
+	return base + 1 // +1 for separator
+}
+
+// ttsModelIdx returns the index of the TTS Model field.
+func (m tuiModel) ttsModelIdx() int {
+	return m.providerIdx() + 1
+}
+
+// ttsSpeedIdx returns the index of the TTS Speed field.
+func (m tuiModel) ttsSpeedIdx() int {
+	return m.providerIdx() + 2
+}
+
+// ttsStabilityIdx returns the index of the TTS Stability field.
+func (m tuiModel) ttsStabilityIdx() int {
+	return m.providerIdx() + 3
+}
+
+// ttsPitchIdx returns the index of the TTS Pitch field.
+func (m tuiModel) ttsPitchIdx() int {
+	return m.providerIdx() + 4
+}
+
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -466,6 +612,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateEditing(msg)
 		case stateStylePicker:
 			return m.updateStylePicker(msg)
+		case stateInputPicker:
+			return m.updateInputPicker(msg)
 		}
 	}
 	return m, nil
@@ -480,14 +628,31 @@ func (m tuiModel) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
+			// Skip separators
+			if m.items[m.cursor].separator {
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			}
 		}
 
 	case "down", "j":
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
+			// Skip separators
+			if m.items[m.cursor].separator {
+				if m.cursor < len(m.items)-1 {
+					m.cursor++
+				}
+			}
 		}
 
 	case "enter", " ":
+		// Skip separators
+		if m.items[m.cursor].separator {
+			return m, nil
+		}
+
 		if m.cursor == m.generateIdx() {
 			// Validate required fields
 			if m.items[idxInput].value == "" {
@@ -498,7 +663,15 @@ func (m tuiModel) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Input/Output are text fields: open inline editor
+		// Input field opens input type picker
+		if m.cursor == idxInput {
+			m.state = stateInputPicker
+			m.inputCursor = 0
+			m.err = nil
+			return m, nil
+		}
+
+		// Output/Topic are text fields
 		if m.isTextInput(m.cursor) {
 			m.state = stateEditing
 			m.items[m.cursor].editing = true
@@ -525,11 +698,75 @@ func (m tuiModel) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+var inputPickerOptions = []menuOption{
+	{label: "Enter URL", value: "url"},
+	{label: "Enter file path", value: "file"},
+	{label: "Paste from clipboard", value: "clipboard"},
+}
+
+func (m tuiModel) updateInputPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		opt := inputPickerOptions[m.inputCursor]
+		switch opt.value {
+		case "url", "file":
+			// Transition to text editing for URL or file path
+			m.state = stateEditing
+			m.items[idxInput].editing = true
+			m.items[idxInput].value = ""
+			return m, nil
+		case "clipboard":
+			// Read clipboard and set value
+			content, err := readClipboard()
+			if err != nil {
+				m.err = fmt.Errorf("clipboard read failed: %v", err)
+				m.state = stateMenu
+				return m, nil
+			}
+			if strings.TrimSpace(content) == "" {
+				m.err = fmt.Errorf("clipboard is empty")
+				m.state = stateMenu
+				return m, nil
+			}
+			// Save to temp file
+			path, err := saveToTempFile(content)
+			if err != nil {
+				m.err = fmt.Errorf("save clipboard content: %v", err)
+				m.state = stateMenu
+				return m, nil
+			}
+			words := len(strings.Fields(content))
+			m.items[idxInput].value = path
+			m.items[idxInput].label = fmt.Sprintf("Input (clipboard: %d words)", words)
+			m.state = stateMenu
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+			}
+			return m, nil
+		}
+
+	case "esc":
+		m.state = stateMenu
+		return m, nil
+
+	case "up", "k":
+		if m.inputCursor > 0 {
+			m.inputCursor--
+		}
+
+	case "down", "j":
+		if m.inputCursor < len(inputPickerOptions)-1 {
+			m.inputCursor++
+		}
+	}
+	return m, nil
+}
+
 func (m tuiModel) updateEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	idx := m.cursor
 	item := &m.items[idx]
 
-	// Text input for Input/Output
+	// Text input for Input/Output/Topic
 	if m.isTextInput(idx) {
 		switch msg.String() {
 		case "enter":
@@ -538,6 +775,9 @@ func (m tuiModel) updateEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Auto-advance to next item
 			if m.cursor < len(m.items)-1 {
 				m.cursor++
+				if m.items[m.cursor].separator {
+					m.cursor++
+				}
 			}
 			return m, nil
 		case "esc":
@@ -570,49 +810,58 @@ func (m tuiModel) updateEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		item.editing = false
 		m.state = stateMenu
 
-		// If default provider changed, update TTS model/speed/stability/pitch options and voice defaults
-		if idx == idxTTS {
-			flagTTS = item.value // update so buildAllVoiceOptions picks new defaults
+		// If provider changed, rebuild TTS options and voice lists
+		provIdx := m.providerIdx()
+		if idx == provIdx {
+			provider := item.value
+			flagTTS = provider
 
-			// Rebuild TTS Model options for new provider
-			m.items[idxTTSModel].options = ttsModelOptions(item.value)
-			m.items[idxTTSModel].value = defaultTTSModel(item.value)
-			m.items[idxTTSModel].cursor = 0
+			// Rebuild TTS Model options
+			ttsIdx := m.ttsModelIdx()
+			m.items[ttsIdx].options = ttsModelOptions(provider)
+			m.items[ttsIdx].value = defaultTTSModel(provider)
+			m.items[ttsIdx].cursor = 0
 
-			// Rebuild Speed/Stability/Pitch options for new provider, reset to defaults
-			m.items[idxTTSSpeed].options = ttsSpeedOptions(item.value)
-			m.items[idxTTSSpeed].value = ""
-			m.items[idxTTSSpeed].cursor = 0
-			m.items[idxTTSStability].options = ttsStabilityOptions(item.value)
-			m.items[idxTTSStability].value = ""
-			m.items[idxTTSStability].cursor = 0
-			m.items[idxTTSPitch].options = ttsPitchOptions(item.value)
-			m.items[idxTTSPitch].value = ""
-			m.items[idxTTSPitch].cursor = 0
+			// Rebuild Speed/Stability/Pitch options
+			speedIdx := m.ttsSpeedIdx()
+			m.items[speedIdx].options = ttsSpeedOptions(provider)
+			m.items[speedIdx].value = ""
+			m.items[speedIdx].cursor = 0
+			stabIdx := m.ttsStabilityIdx()
+			m.items[stabIdx].options = ttsStabilityOptions(provider)
+			m.items[stabIdx].value = ""
+			m.items[stabIdx].cursor = 0
+			pitchIdx := m.ttsPitchIdx()
+			m.items[pitchIdx].options = ttsPitchOptions(provider)
+			m.items[pitchIdx].value = ""
+			m.items[pitchIdx].cursor = 0
 
-			// Update voice defaults
-			_, dv1, dv2, dv3 := buildAllVoiceOptions()
+			// Rebuild voice options for new provider
+			voiceOpts, dv1, dv2, dv3 := buildVoiceOptionsForProvider(provider)
+			m.items[idxVoice1].options = voiceOpts
 			m.items[idxVoice1].value = dv1
 			m.items[idxVoice1].cursor = 0
-			for j, opt := range m.items[idxVoice1].options {
+			for j, opt := range voiceOpts {
 				if opt.value == dv1 {
 					m.items[idxVoice1].cursor = j
 					break
 				}
 			}
+			m.items[idxVoice2].options = voiceOpts
 			m.items[idxVoice2].value = dv2
 			m.items[idxVoice2].cursor = 0
-			for j, opt := range m.items[idxVoice2].options {
+			for j, opt := range voiceOpts {
 				if opt.value == dv2 {
 					m.items[idxVoice2].cursor = j
 					break
 				}
 			}
-			if m.voiceCount >= 3 && len(m.items) > idxVoice2+1 {
+			if m.voiceCount >= 3 {
 				v3Idx := idxVoice2 + 1
+				m.items[v3Idx].options = voiceOpts
 				m.items[v3Idx].value = dv3
 				m.items[v3Idx].cursor = 0
-				for j, opt := range m.items[v3Idx].options {
+				for j, opt := range voiceOpts {
 					if opt.value == dv3 {
 						m.items[v3Idx].cursor = j
 						break
@@ -639,6 +888,9 @@ func (m tuiModel) updateEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Auto-advance
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
+			if m.items[m.cursor].separator {
+				m.cursor++
+			}
 		}
 		return m, nil
 
@@ -708,37 +960,75 @@ func (m tuiModel) updateStylePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *tuiModel) rebuildForVoiceCount() {
-	// Preserve current values
-	savedInput := m.items[idxInput].value
-	savedOutput := m.items[idxOutput].value
-	savedTopic := m.items[idxTopic].value
-	savedModel := m.items[idxModel].value
-	savedTTS := m.items[idxTTS].value
-	savedTTSModel := m.items[idxTTSModel].value
-	savedSpeed := m.items[idxTTSSpeed].value
-	savedStability := m.items[idxTTSStability].value
-	savedPitch := m.items[idxTTSPitch].value
-	savedTone := m.items[idxTone].value
-	savedDuration := m.items[idxDuration].value
-	savedStyle := m.items[idxStyle].value
+	// Preserve current values by index name
+	saved := map[string]string{
+		"input":    m.items[idxInput].value,
+		"output":   m.items[idxOutput].value,
+		"topic":    m.items[idxTopic].value,
+		"format":   m.items[idxFormat].value,
+		"tone":     m.items[idxTone].value,
+		"duration": m.items[idxDuration].value,
+		"style":    m.items[idxStyle].value,
+		"model":    m.items[idxModel].value,
+	}
+
+	// Save TTS settings by dynamic index
+	provIdx := m.providerIdx()
+	if provIdx < len(m.items) {
+		saved["provider"] = m.items[provIdx].value
+	}
+	ttsIdx := m.ttsModelIdx()
+	if ttsIdx < len(m.items) {
+		saved["ttsmodel"] = m.items[ttsIdx].value
+	}
+	speedIdx := m.ttsSpeedIdx()
+	if speedIdx < len(m.items) {
+		saved["speed"] = m.items[speedIdx].value
+	}
+	stabIdx := m.ttsStabilityIdx()
+	if stabIdx < len(m.items) {
+		saved["stability"] = m.items[stabIdx].value
+	}
+	pitchIdx := m.ttsPitchIdx()
+	if pitchIdx < len(m.items) {
+		saved["pitch"] = m.items[pitchIdx].value
+	}
 
 	// Rebuild items with new voice count
 	m.items = buildMenuItems(m.voiceCount)
 
 	// Restore values
-	m.items[idxInput].value = savedInput
-	m.items[idxOutput].value = savedOutput
-	m.items[idxTopic].value = savedTopic
-	m.items[idxModel].value = savedModel
-	m.items[idxTTS].value = savedTTS
-	m.items[idxTTSModel].value = savedTTSModel
-	m.items[idxTTSSpeed].value = savedSpeed
-	m.items[idxTTSStability].value = savedStability
-	m.items[idxTTSPitch].value = savedPitch
-	m.items[idxTone].value = savedTone
-	m.items[idxDuration].value = savedDuration
-	m.items[idxStyle].value = savedStyle
+	m.items[idxInput].value = saved["input"]
+	m.items[idxOutput].value = saved["output"]
+	m.items[idxTopic].value = saved["topic"]
+	m.items[idxFormat].value = saved["format"]
+	m.items[idxTone].value = saved["tone"]
+	m.items[idxDuration].value = saved["duration"]
+	m.items[idxStyle].value = saved["style"]
+	m.items[idxModel].value = saved["model"]
 	m.items[idxVoices].value = fmt.Sprintf("%d", m.voiceCount)
+
+	// Restore TTS settings
+	newProvIdx := m.providerIdx()
+	if newProvIdx < len(m.items) && saved["provider"] != "" {
+		m.items[newProvIdx].value = saved["provider"]
+	}
+	newTTSIdx := m.ttsModelIdx()
+	if newTTSIdx < len(m.items) && saved["ttsmodel"] != "" {
+		m.items[newTTSIdx].value = saved["ttsmodel"]
+	}
+	newSpeedIdx := m.ttsSpeedIdx()
+	if newSpeedIdx < len(m.items) {
+		m.items[newSpeedIdx].value = saved["speed"]
+	}
+	newStabIdx := m.ttsStabilityIdx()
+	if newStabIdx < len(m.items) {
+		m.items[newStabIdx].value = saved["stability"]
+	}
+	newPitchIdx := m.ttsPitchIdx()
+	if newPitchIdx < len(m.items) {
+		m.items[newPitchIdx].value = saved["pitch"]
+	}
 
 	// Re-select cursor positions for option items
 	for i := range m.items {
@@ -758,6 +1048,25 @@ func (m *tuiModel) rebuildForVoiceCount() {
 	}
 }
 
+// scrollWindow computes the visible range of options for a scrollable picker.
+func scrollWindow(cursor, total, visible int) (start, end int) {
+	if total <= visible {
+		return 0, total
+	}
+	// Center cursor in visible window
+	half := visible / 2
+	start = cursor - half
+	if start < 0 {
+		start = 0
+	}
+	end = start + visible
+	if end > total {
+		end = total
+		start = end - visible
+	}
+	return start, end
+}
+
 func (m tuiModel) View() string {
 	var b strings.Builder
 
@@ -771,6 +1080,14 @@ func (m tuiModel) View() string {
 
 	for i, item := range m.items {
 		isActive := m.cursor == i
+
+		// Separator
+		if item.separator {
+			b.WriteString("\n")
+			b.WriteString("  " + separatorStyle.Render("─── "+item.label+" ───"))
+			b.WriteString("\n")
+			continue
+		}
 
 		// Generate button
 		if i == genIdx {
@@ -805,11 +1122,12 @@ func (m tuiModel) View() string {
 		} else if item.value == "" {
 			// Show contextual placeholder text
 			placeholder := "(not set)"
-			switch i {
-			case idxTopic:
+			switch {
+			case i == idxTopic:
 				placeholder = "(optional — focus on specific aspect)"
-			case idxTTSSpeed, idxTTSStability, idxTTSPitch:
-				// Option pickers show "Default" label from first option
+			case i == idxOutput:
+				placeholder = "(auto: based on episode title)"
+			case i == m.ttsSpeedIdx() || i == m.ttsStabilityIdx() || i == m.ttsPitchIdx():
 				if len(item.options) > 0 {
 					placeholder = item.options[0].label
 				}
@@ -829,15 +1147,45 @@ func (m tuiModel) View() string {
 
 		b.WriteString(cursor + renderedLabel + " " + renderedValue + "\n")
 
-		// Show expanded options when editing
+		// Show expanded options when editing (with scrolling for large lists)
 		if item.editing && len(item.options) > 0 && !m.isTextInput(i) {
-			for j, opt := range item.options {
-				if j == item.cursor {
-					b.WriteString(selectedOptionStyle.Render("> " + opt.label) + "\n")
-				} else {
-					b.WriteString(optionStyle.Render("  " + opt.label) + "\n")
+			if len(item.options) > maxVisibleOptions {
+				start, end := scrollWindow(item.cursor, len(item.options), maxVisibleOptions)
+				if start > 0 {
+					b.WriteString(dimStyle.Render(fmt.Sprintf("    \u2191 %d more", start)) + "\n")
+				}
+				for j := start; j < end; j++ {
+					opt := item.options[j]
+					if j == item.cursor {
+						b.WriteString(selectedOptionStyle.Render("> "+opt.label) + "\n")
+					} else {
+						b.WriteString(optionStyle.Render("  "+opt.label) + "\n")
+					}
+				}
+				if end < len(item.options) {
+					b.WriteString(dimStyle.Render(fmt.Sprintf("    \u2193 %d more", len(item.options)-end)) + "\n")
+				}
+			} else {
+				for j, opt := range item.options {
+					if j == item.cursor {
+						b.WriteString(selectedOptionStyle.Render("> "+opt.label) + "\n")
+					} else {
+						b.WriteString(optionStyle.Render("  "+opt.label) + "\n")
+					}
 				}
 			}
+		}
+	}
+
+	// Input picker overlay
+	if m.state == stateInputPicker {
+		b.WriteString("\n")
+		for j, opt := range inputPickerOptions {
+			prefix := "  "
+			if j == m.inputCursor {
+				prefix = cursorStyle.Render("> ")
+			}
+			b.WriteString(fmt.Sprintf("  %s%s\n", prefix, opt.label))
 		}
 	}
 
@@ -874,6 +1222,8 @@ func (m tuiModel) View() string {
 		}
 	case stateStylePicker:
 		b.WriteString(helpStyle.Render("  j/k or arrows to navigate | space to toggle | enter to confirm | esc to cancel"))
+	case stateInputPicker:
+		b.WriteString(helpStyle.Render("  j/k or arrows to pick | enter to select | esc to cancel"))
 	}
 	b.WriteString("\n")
 
@@ -901,18 +1251,36 @@ func runInteractiveSetup() error {
 	flagInput = final.items[idxInput].value
 	flagOutput = final.items[idxOutput].value
 	flagTopic = final.items[idxTopic].value
-	flagModel = final.items[idxModel].value
-	flagTTS = final.items[idxTTS].value
-	flagTTSModel = final.items[idxTTSModel].value
-	flagTTSSpeed = parseFloat(final.items[idxTTSSpeed].value)
-	flagTTSStability = parseFloat(final.items[idxTTSStability].value)
-	flagTTSPitch = parseFloat(final.items[idxTTSPitch].value)
+	flagFormat = final.items[idxFormat].value
 	flagTone = final.items[idxTone].value
 	flagDuration = final.items[idxDuration].value
+	flagModel = final.items[idxModel].value
+
 	if final.items[idxStyle].value != "" {
 		flagStyle = strings.ReplaceAll(final.items[idxStyle].value, " ", "")
 	}
-	// Voice values already include provider:voiceID format from TUI
+
+	// Provider
+	provIdx := final.providerIdx()
+	providerVal := final.items[provIdx].value
+	if providerVal == "auto" {
+		// Infer from voice selections
+		providerVal = "gemini" // default fallback
+		v1 := final.items[idxVoice1].value
+		if p, _ := tts.ParseVoiceSpec(v1); p != "" {
+			providerVal = p
+		}
+	}
+	flagTTS = providerVal
+
+	// TTS settings
+	ttsIdx := final.ttsModelIdx()
+	flagTTSModel = final.items[ttsIdx].value
+	flagTTSSpeed = parseFloat(final.items[final.ttsSpeedIdx()].value)
+	flagTTSStability = parseFloat(final.items[final.ttsStabilityIdx()].value)
+	flagTTSPitch = parseFloat(final.items[final.ttsPitchIdx()].value)
+
+	// Voice values include provider:voiceID format from TUI
 	flagVoice1 = final.items[idxVoice1].value
 	flagVoice2 = final.items[idxVoice2].value
 	flagVoices = final.voiceCount
@@ -926,4 +1294,27 @@ func runInteractiveSetup() error {
 	}
 
 	return nil
+}
+
+// readClipboard reads the system clipboard (macOS).
+func readClipboard() (string, error) {
+	out, err := exec.Command("pbpaste").Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// saveToTempFile saves content to a temp file in podcaster-output/tempfiles/.
+func saveToTempFile(content string) (string, error) {
+	dir := filepath.Join(pipeline.OutputBaseDir, "tempfiles")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create tempfiles dir: %w", err)
+	}
+	name := fmt.Sprintf("input-%s.txt", time.Now().Format("20060102-150405"))
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	return path, nil
 }

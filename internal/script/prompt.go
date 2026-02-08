@@ -234,13 +234,11 @@ IMPORTANT: Output raw JSON only. No markdown code fences. No text before or afte
 func buildUserPrompt(content string, opts GenerateOptions) string {
 	segmentGuidance := durationToSegments(opts.Duration)
 
-	formatLabel := "two-host podcast conversation"
-	switch opts.Voices {
-	case 1:
-		formatLabel = "single-host monologue"
-	case 3:
-		formatLabel = "three-host roundtable conversation"
+	format := opts.Format
+	if format == "" {
+		format = "conversation"
 	}
+	label := formatLabelForPrompt(format, opts.Voices)
 
 	prompt := fmt.Sprintf(`<scratchpad>
 Before writing the script, plan your approach:
@@ -252,7 +250,10 @@ Before writing the script, plan your approach:
 
 Convert the following content into a %s.
 
-`, segmentGuidance, formatLabel)
+`, segmentGuidance, label)
+
+	// Format directive
+	prompt += fmt.Sprintf("FORMAT:\n%s\n\n", formatDirective(format))
 
 	if opts.Topic != "" {
 		prompt += fmt.Sprintf("FOCUS: Center the conversation on: %s\n\n", opts.Topic)
@@ -260,7 +261,7 @@ Convert the following content into a %s.
 
 	prompt += fmt.Sprintf("TONE: %s\n\n", toneDescription(opts.Tone))
 
-	if styleDesc := styleDescription(opts.Styles); styleDesc != "" {
+	if styleDesc := styleDescription(opts.Styles, format); styleDesc != "" {
 		prompt += fmt.Sprintf("STYLE DIRECTIVES:\n%s\n\n", styleDesc)
 	}
 
@@ -273,17 +274,31 @@ Convert the following content into a %s.
 func durationToSegments(duration string) string {
 	switch duration {
 	case "short":
-		return "Exactly 30 segments (~10 minutes of audio)"
+		return "Exactly 30 segments (~8 minutes of audio)"
 	case "long":
-		return "Exactly 75 segments (~25 minutes of audio)"
+		return "Exactly 100 segments (~35 minutes of audio)"
 	case "deep":
-		return "Exactly 200 segments (~65 minutes of audio). This is a DEEP DIVE — cover every major point thoroughly, explore tangents, include extended exchanges."
+		return "Exactly 200 segments (~55 minutes of audio). This is a DEEP DIVE — cover every major point thoroughly, explore tangents, include extended exchanges."
 	default: // standard (also covers "medium" alias)
-		return "Exactly 50 segments (~15 minutes of audio)"
+		return "Exactly 60 segments (~18 minutes of audio)"
 	}
 }
 
-func styleDescription(styles []string) string {
+// TargetSegments returns the target segment count for a given duration.
+func TargetSegments(duration string) int {
+	switch duration {
+	case "short":
+		return 30
+	case "long":
+		return 100
+	case "deep":
+		return 200
+	default:
+		return 60
+	}
+}
+
+func styleDescription(styles []string, format string) string {
 	if len(styles) == 0 {
 		return ""
 	}
@@ -296,8 +311,17 @@ func styleDescription(styles []string) string {
 		"storytelling": "Build a narrative arc with suspense and foreshadowing. Use 'What happened next?' moments, vivid scene-setting, and cliffhangers between segments.",
 	}
 
+	// Deduplicate: skip style if it's redundant with the format
+	redundant := map[string]string{
+		"debate":       "debate",
+		"storytelling": "storytelling",
+	}
+
 	var parts []string
 	for _, s := range styles {
+		if redundant[s] == format {
+			continue
+		}
 		if desc, ok := descriptions[s]; ok {
 			parts = append(parts, fmt.Sprintf("- %s: %s", strings.ToUpper(s), desc))
 		}

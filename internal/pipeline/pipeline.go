@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ type Options struct {
 	Topic          string
 	Tone           string
 	Duration       string
+	Format         string // show format: conversation, interview, debate, etc.
 	Styles         []string
 	Voice1         string // voice ID (without provider prefix)
 	Voice1Provider string // "elevenlabs", "gemini", "google"
@@ -141,8 +143,16 @@ func Run(ctx context.Context, opts Options) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	logf("Pipeline started — output: %s", opts.Output)
-	logf("Config: model=%s tts=%s tone=%s duration=%s voices=%d", opts.Model, opts.DefaultTTS, opts.Tone, opts.Duration, opts.Voices)
+	if opts.Output != "" {
+		logf("Pipeline started — output: %s", opts.Output)
+	} else {
+		logf("Pipeline started — output: (auto-naming from script title)")
+	}
+	format := opts.Format
+	if format == "" {
+		format = "conversation"
+	}
+	logf("Config: model=%s tts=%s tone=%s duration=%s voices=%d format=%s", opts.Model, opts.DefaultTTS, opts.Tone, opts.Duration, opts.Voices, format)
 	if len(opts.Styles) > 0 {
 		logf("Config: styles=%s", strings.Join(opts.Styles, ","))
 	}
@@ -203,6 +213,7 @@ func Run(ctx context.Context, opts Options) error {
 			Styles:   opts.Styles,
 			Model:    opts.Model,
 			Voices:   opts.Voices,
+			Format:   opts.Format,
 		}
 		s, err = gen.Generate(ctx, content.Text, genOpts)
 		if err != nil {
@@ -210,7 +221,53 @@ func Run(ctx context.Context, opts Options) error {
 			return &PipelineError{Stage: "script", Message: "failed to generate script", Err: err}
 		}
 		logf("Script complete: %d segments, ~%d min (%s)", len(s.Segments), estimateMinutes(s), time.Since(stageStart).Round(time.Millisecond))
-		emit(progress.StageScript, "Script complete", 0.20)
+		emit(progress.StageScript, "Script complete", 0.18)
+
+		// Stage 2b: Script review (always-on)
+		logf("Stage 2b: Reviewing script quality...")
+		reviewer, revErr := script.NewReviewer(opts.Model)
+		if revErr != nil {
+			logf("WARNING: could not create reviewer: %v", revErr)
+		} else {
+			result, revErr := reviewer.Review(ctx, s, content.Text, genOpts)
+			if revErr != nil {
+				logf("WARNING: script review failed: %v", revErr)
+			} else {
+				for _, issue := range result.Issues {
+					logf("  Review [%s] %s: %s", issue.Severity, issue.Category, issue.Message)
+				}
+				if result.Approved {
+					logf("Script review passed")
+				} else if result.Revised != nil {
+					logf("Script revised: %d → %d segments", len(s.Segments), len(result.Revised.Segments))
+					s = result.Revised
+				} else {
+					logf("Script review found issues but revision was not possible")
+				}
+			}
+		}
+		emit(progress.StageScript, "Review complete", 0.20)
+	}
+
+	// Auto-name output from script title if output was not specified
+	if opts.Output == "" {
+		autoName := AutoOutputName(s.Title)
+		opts.Output = filepath.Join(OutputBaseDir, "episodes", autoName)
+		opts.LogFile = LogFilePath(autoName)
+
+		// Re-open log file with new name
+		if opts.LogFile != "" {
+			lf2, err := os.Create(opts.LogFile)
+			if err == nil {
+				defer lf2.Close()
+				if opts.Verbose {
+					logger.SetOutput(io.MultiWriter(os.Stdout, lf2))
+				} else {
+					logger.SetOutput(lf2)
+				}
+			}
+		}
+		logf("Auto-named output: %s", opts.Output)
 	}
 
 	// Save the script to the scripts subdirectory
@@ -658,3 +715,31 @@ func wordCount(s string) int {
 	}
 	return count
 }
+
+var slugNonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
+
+// slugify converts a title into a URL-safe filename slug.
+// Lowercase, replace non-alphanumeric with hyphens, collapse consecutive hyphens, max 50 chars.
+func slugify(title string) string {
+	s := strings.ToLower(title)
+	// Replace non-alphanumeric with hyphens
+	s = slugNonAlnum.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	// Truncate to 50 chars, trimming trailing hyphens
+	if len(s) > 50 {
+		s = s[:50]
+		s = strings.TrimRight(s, "-")
+	}
+	return s
+}
+
+// AutoOutputName generates a filename from the script title + timestamp.
+func AutoOutputName(title string) string {
+	slug := slugify(title)
+	if slug == "" {
+		slug = "podcast"
+	}
+	ts := time.Now().Format("20060102-1504")
+	return slug + "-" + ts + ".mp3"
+}
+

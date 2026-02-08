@@ -26,7 +26,7 @@ const (
 func maxTokensForDuration(duration string) int64 {
 	switch duration {
 	case "long":
-		return 16384
+		return 24576
 	case "deep":
 		return 32768
 	default: // short, standard, medium
