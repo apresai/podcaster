@@ -14,8 +14,8 @@ import (
 type AudioFormat string
 
 const (
-	FormatMP3  AudioFormat = "mp3"
-	FormatPCM  AudioFormat = "pcm"  // raw PCM (needs FFmpeg conversion)
+	FormatMP3 AudioFormat = "mp3"
+	FormatPCM AudioFormat = "pcm" // raw PCM (needs FFmpeg conversion)
 	FormatWAV AudioFormat = "wav"
 )
 
@@ -132,6 +132,7 @@ type ProviderConfig struct {
 	Speed     float64 // speech speed (0 = provider default)
 	Stability float64 // ElevenLabs voice stability 0-1 (0 = default 0.5)
 	Pitch     float64 // Google Cloud pitch in semitones (0 = default)
+	APIKey    string  // per-request API key override (empty = use env var)
 }
 
 // validModels maps provider names to their valid model IDs.
@@ -139,8 +140,8 @@ var validModels = map[string]map[string]bool{
 	"elevenlabs": {
 		"eleven_v3":              true,
 		"eleven_multilingual_v2": true,
-		"eleven_turbo_v2_5":     true,
-		"eleven_flash_v2_5":     true,
+		"eleven_turbo_v2_5":      true,
+		"eleven_flash_v2_5":      true,
 	},
 	"gemini": {
 		"gemini-2.5-pro-preview-tts":   true,

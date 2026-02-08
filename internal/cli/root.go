@@ -46,27 +46,30 @@ var listVoicesCmd = &cobra.Command{
 }
 
 var (
-	flagInput        string
-	flagOutput       string
-	flagTopic        string
-	flagTone         string
-	flagDuration     string
-	flagStyle        string
-	flagFormat       string
-	flagVoice1       string
-	flagVoice2       string
-	flagVoice3       string
-	flagVoices       int
-	flagScriptOnly   bool
-	flagFromScript   string
-	flagVerbose      bool
-	flagTTS          string
-	flagModel        string
-	flagTUI          bool
-	flagTTSModel     string
-	flagTTSSpeed     float64
-	flagTTSStability float64
-	flagTTSPitch     float64
+	flagInput            string
+	flagOutput           string
+	flagTopic            string
+	flagTone             string
+	flagDuration         string
+	flagStyle            string
+	flagFormat           string
+	flagVoice1           string
+	flagVoice2           string
+	flagVoice3           string
+	flagVoices           int
+	flagScriptOnly       bool
+	flagFromScript       string
+	flagVerbose          bool
+	flagTTS              string
+	flagModel            string
+	flagTUI              bool
+	flagTTSModel         string
+	flagTTSSpeed         float64
+	flagTTSStability     float64
+	flagTTSPitch         float64
+	flagAnthropicAPIKey  string
+	flagGeminiAPIKey     string
+	flagElevenLabsAPIKey string
 )
 
 func init() {
@@ -94,6 +97,9 @@ func init() {
 	generateCmd.Flags().Float64Var(&flagTTSSpeed, "tts-speed", 0, "Speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0)")
 	generateCmd.Flags().Float64Var(&flagTTSStability, "tts-stability", 0, "Voice stability, ElevenLabs only (0.0-1.0)")
 	generateCmd.Flags().Float64Var(&flagTTSPitch, "tts-pitch", 0, "Pitch adjustment in semitones, Google only (-20.0 to 20.0)")
+	generateCmd.Flags().StringVar(&flagAnthropicAPIKey, "anthropic-api-key", "", "Anthropic API key (overrides ANTHROPIC_API_KEY env var)")
+	generateCmd.Flags().StringVar(&flagGeminiAPIKey, "gemini-api-key", "", "Gemini API key (overrides GEMINI_API_KEY env var)")
+	generateCmd.Flags().StringVar(&flagElevenLabsAPIKey, "elevenlabs-api-key", "", "ElevenLabs API key (overrides ELEVENLABS_API_KEY env var)")
 }
 
 func Execute() error {
@@ -249,30 +255,33 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := pipeline.Options{
-		Input:          flagInput,
-		Output:         outputPath,
-		Topic:          flagTopic,
-		Tone:           flagTone,
-		Duration:       flagDuration,
-		Format:         flagFormat,
-		Styles:         styles,
-		Voice1:         v1ID,
-		Voice1Provider: v1Provider,
-		Voice2:         v2ID,
-		Voice2Provider: v2Provider,
-		Voice3:         v3ID,
-		Voice3Provider: v3Provider,
-		Voices:         flagVoices,
-		ScriptOnly:     flagScriptOnly,
-		FromScript:     flagFromScript,
-		Verbose:        flagVerbose,
-		DefaultTTS:     flagTTS,
-		Model:          flagModel,
-		LogFile:        logFile,
-		TTSModel:       flagTTSModel,
-		TTSSpeed:       flagTTSSpeed,
-		TTSStability:   flagTTSStability,
-		TTSPitch:       flagTTSPitch,
+		Input:            flagInput,
+		Output:           outputPath,
+		Topic:            flagTopic,
+		Tone:             flagTone,
+		Duration:         flagDuration,
+		Format:           flagFormat,
+		Styles:           styles,
+		Voice1:           v1ID,
+		Voice1Provider:   v1Provider,
+		Voice2:           v2ID,
+		Voice2Provider:   v2Provider,
+		Voice3:           v3ID,
+		Voice3Provider:   v3Provider,
+		Voices:           flagVoices,
+		ScriptOnly:       flagScriptOnly,
+		FromScript:       flagFromScript,
+		Verbose:          flagVerbose,
+		DefaultTTS:       flagTTS,
+		Model:            flagModel,
+		LogFile:          logFile,
+		TTSModel:         flagTTSModel,
+		TTSSpeed:         flagTTSSpeed,
+		TTSStability:     flagTTSStability,
+		TTSPitch:         flagTTSPitch,
+		AnthropicAPIKey:  flagAnthropicAPIKey,
+		GeminiAPIKey:     flagGeminiAPIKey,
+		ElevenLabsAPIKey: flagElevenLabsAPIKey,
 	}
 
 	// Wire up progress bar when not in verbose mode
@@ -321,14 +330,19 @@ func runListVoices(cmd *cobra.Command, args []string) error {
 func checkAPIKeys(ttsProviders []string, model string) error {
 	needed := map[string]bool{}
 
+	// Check if a key is available via flag or env var
+	hasKey := func(envVar, flagVal string) bool {
+		return flagVal != "" || os.Getenv(envVar) != ""
+	}
+
 	if flagFromScript == "" {
 		switch {
 		case model == "haiku" || model == "sonnet":
-			if os.Getenv("ANTHROPIC_API_KEY") == "" {
+			if !hasKey("ANTHROPIC_API_KEY", flagAnthropicAPIKey) {
 				needed["ANTHROPIC_API_KEY"] = true
 			}
 		case model == "gemini-flash" || model == "gemini-pro":
-			if os.Getenv("GEMINI_API_KEY") == "" {
+			if !hasKey("GEMINI_API_KEY", flagGeminiAPIKey) {
 				needed["GEMINI_API_KEY"] = true
 			}
 		}
@@ -344,11 +358,11 @@ func checkAPIKeys(ttsProviders []string, model string) error {
 			seen[p] = true
 			switch p {
 			case "elevenlabs":
-				if os.Getenv("ELEVENLABS_API_KEY") == "" {
+				if !hasKey("ELEVENLABS_API_KEY", flagElevenLabsAPIKey) {
 					needed["ELEVENLABS_API_KEY"] = true
 				}
 			case "gemini":
-				if os.Getenv("GEMINI_API_KEY") == "" {
+				if !hasKey("GEMINI_API_KEY", flagGeminiAPIKey) {
 					needed["GEMINI_API_KEY"] = true
 				}
 			case "google":
@@ -362,7 +376,7 @@ func checkAPIKeys(ttsProviders []string, model string) error {
 		for k := range needed {
 			missing = append(missing, k)
 		}
-		return fmt.Errorf("missing required environment variable(s): %s", strings.Join(missing, ", "))
+		return fmt.Errorf("missing required environment variable(s): %s\nYou can also pass these via --anthropic-api-key, --gemini-api-key, --elevenlabs-api-key flags", strings.Join(missing, ", "))
 	}
 	return nil
 }

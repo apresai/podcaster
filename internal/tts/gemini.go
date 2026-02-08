@@ -25,8 +25,8 @@ const (
 
 // geminiRequest is the top-level request to the Gemini generateContent TTS endpoint.
 type geminiRequest struct {
-	Contents         []geminiContent  `json:"contents"`
-	GenerationConfig geminiGenConfig  `json:"generationConfig"`
+	Contents         []geminiContent `json:"contents"`
+	GenerationConfig geminiGenConfig `json:"generationConfig"`
 }
 
 type geminiContent struct {
@@ -38,13 +38,13 @@ type geminiPart struct {
 }
 
 type geminiGenConfig struct {
-	ResponseModalities []string          `json:"responseModalities"`
+	ResponseModalities []string           `json:"responseModalities"`
 	SpeechConfig       geminiSpeechConfig `json:"speechConfig"`
 }
 
 type geminiSpeechConfig struct {
-	VoiceConfig           *geminiVoiceConfig           `json:"voiceConfig,omitempty"`
-	MultiSpeakerVoiceConfig *geminiMultiSpeakerConfig  `json:"multiSpeakerVoiceConfig,omitempty"`
+	VoiceConfig             *geminiVoiceConfig        `json:"voiceConfig,omitempty"`
+	MultiSpeakerVoiceConfig *geminiMultiSpeakerConfig `json:"multiSpeakerVoiceConfig,omitempty"`
 }
 
 type geminiVoiceConfig struct {
@@ -113,13 +113,18 @@ func NewGeminiProvider(voice1, voice2, voice3 string, cfg ProviderConfig) *Gemin
 		model = cfg.Model
 	}
 
+	apiKey := cfg.APIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("GEMINI_API_KEY")
+	}
+
 	return &GeminiProvider{
 		voices: VoiceMap{
 			Host1: Voice{ID: v1, Name: v1},
 			Host2: Voice{ID: v2, Name: v2},
 			Host3: Voice{ID: v3, Name: v3},
 		},
-		apiKey:     os.Getenv("GEMINI_API_KEY"),
+		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 300 * time.Second},
 		model:      model,
 	}

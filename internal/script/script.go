@@ -45,12 +45,13 @@ func SaveScript(s *Script, path string) error {
 }
 
 // NewGenerator returns the appropriate Generator for the given model name.
-func NewGenerator(model string) (Generator, error) {
+// apiKey is an optional per-request key override; if empty, providers fall back to env vars.
+func NewGenerator(model, apiKey string) (Generator, error) {
 	switch model {
 	case "haiku", "sonnet":
-		return NewClaudeGenerator(model), nil
+		return NewClaudeGenerator(model, apiKey), nil
 	case "gemini-flash", "gemini-pro":
-		return NewGeminiGenerator(model), nil
+		return NewGeminiGenerator(model, apiKey), nil
 	default:
 		return nil, fmt.Errorf("unknown model %q: must be haiku, sonnet, gemini-flash, or gemini-pro", model)
 	}

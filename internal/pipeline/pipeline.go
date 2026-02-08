@@ -50,6 +50,11 @@ type Options struct {
 	TTSStability   float64 // --tts-stability (ElevenLabs)
 	TTSPitch       float64 // --tts-pitch (Google)
 	OnProgress     progress.Callback
+
+	// Per-request API key overrides (BYOK). Empty = use env vars.
+	AnthropicAPIKey  string
+	GeminiAPIKey     string
+	ElevenLabsAPIKey string
 }
 
 // CLICommand returns a reproducible CLI command for the current options.
@@ -238,14 +243,33 @@ func Run(ctx context.Context, opts Options) error {
 	ps := tts.NewProviderSet()
 	defer ps.Close()
 
-	if opts.TTSModel != "" || opts.TTSSpeed != 0 || opts.TTSStability != 0 || opts.TTSPitch != 0 {
-		ps.SetConfig(opts.DefaultTTS, tts.ProviderConfig{
-			Model:     opts.TTSModel,
-			Speed:     opts.TTSSpeed,
-			Stability: opts.TTSStability,
-			Pitch:     opts.TTSPitch,
-		})
+	// Build TTS provider config with optional per-request API keys
+	ttsCfg := tts.ProviderConfig{
+		Model:     opts.TTSModel,
+		Speed:     opts.TTSSpeed,
+		Stability: opts.TTSStability,
+		Pitch:     opts.TTSPitch,
 	}
+	// Set provider-specific API key overrides
+	setTTSConfigs := func() {
+		providers := []string{opts.Voice1Provider, opts.Voice2Provider, opts.Voice3Provider, opts.DefaultTTS}
+		seen := map[string]bool{}
+		for _, p := range providers {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			cfg := ttsCfg
+			switch p {
+			case "gemini":
+				cfg.APIKey = opts.GeminiAPIKey
+			case "elevenlabs":
+				cfg.APIKey = opts.ElevenLabsAPIKey
+			}
+			ps.SetConfig(p, cfg)
+		}
+	}
+	setTTSConfigs()
 
 	voices := tts.VoiceMap{}
 	if opts.Voice1 != "" {
@@ -337,7 +361,15 @@ func Run(ctx context.Context, opts Options) error {
 		modelName := script.ModelDisplayName(opts.Model)
 		emit(progress.StageScript, fmt.Sprintf("Generating script (%s)...", modelName), 0.05)
 		logf("Stage 2/4: Generating script with %s...", modelName)
-		gen, err := script.NewGenerator(opts.Model)
+		// Choose the right API key for the script generation model
+		var scriptAPIKey string
+		switch opts.Model {
+		case "haiku", "sonnet":
+			scriptAPIKey = opts.AnthropicAPIKey
+		case "gemini-flash", "gemini-pro":
+			scriptAPIKey = opts.GeminiAPIKey
+		}
+		gen, err := script.NewGenerator(opts.Model, scriptAPIKey)
 		if err != nil {
 			logf("ERROR: failed to create script generator: %v", err)
 			return &PipelineError{Stage: "script", Message: "failed to create script generator", Err: err}
@@ -362,7 +394,7 @@ func Run(ctx context.Context, opts Options) error {
 
 		// Stage 2b: Script review (always-on)
 		logf("Stage 2b: Reviewing script quality...")
-		reviewer, revErr := script.NewReviewer(opts.Model)
+		reviewer, revErr := script.NewReviewer(opts.Model, scriptAPIKey)
 		if revErr != nil {
 			logf("WARNING: could not create reviewer: %v", revErr)
 		} else {
@@ -588,24 +620,29 @@ func Run(ctx context.Context, opts Options) error {
 	// Report final output
 	var completionEvent progress.Event
 	completionEvent.Stage = progress.StageComplete
-	completionEvent.LogFile = opts.LogFile
 	completionEvent.Elapsed = time.Since(pipelineStart)
 
 	info, err := os.Stat(opts.Output)
 	if err == nil {
 		sizeMB := float64(info.Size()) / (1024 * 1024)
 		duration := ProbeDuration(opts.Output)
-		completionEvent.OutputFile = opts.Output
+		absOutput, _ := filepath.Abs(opts.Output)
+		completionEvent.OutputFile = absOutput
 		completionEvent.SizeMB = sizeMB
 		completionEvent.Duration = duration
 		completionEvent.Percent = 1.0
 		if duration != "" {
-			logf("Episode saved to %s (%s, %.1f MB)", opts.Output, duration, sizeMB)
-			completionEvent.Message = fmt.Sprintf("Episode saved to %s (%s, %.1f MB)", opts.Output, duration, sizeMB)
+			logf("Episode saved to %s (%s, %.1f MB)", absOutput, duration, sizeMB)
+			completionEvent.Message = fmt.Sprintf("Episode saved to %s (%s, %.1f MB)", absOutput, duration, sizeMB)
 		} else {
-			logf("Episode saved to %s (%.1f MB)", opts.Output, sizeMB)
-			completionEvent.Message = fmt.Sprintf("Episode saved to %s (%.1f MB)", opts.Output, sizeMB)
+			logf("Episode saved to %s (%.1f MB)", absOutput, sizeMB)
+			completionEvent.Message = fmt.Sprintf("Episode saved to %s (%.1f MB)", absOutput, sizeMB)
 		}
+	}
+
+	if opts.LogFile != "" {
+		absLog, _ := filepath.Abs(opts.LogFile)
+		completionEvent.LogFile = absLog
 	}
 
 	logf("Total pipeline time: %s", time.Since(pipelineStart).Round(time.Millisecond))
@@ -832,4 +869,3 @@ func AutoOutputName(title string) string {
 	ts := time.Now().Format("20060102-1504")
 	return slug + "-" + ts + ".mp3"
 }
-

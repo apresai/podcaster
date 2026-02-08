@@ -23,12 +23,14 @@ type ReviewIssue struct {
 
 // Reviewer validates and optionally revises generated scripts.
 type Reviewer struct {
-	model string
+	model  string
+	apiKey string // optional per-request override; empty = use env vars
 }
 
 // NewReviewer creates a reviewer that uses the same model as script generation.
-func NewReviewer(model string) (*Reviewer, error) {
-	return &Reviewer{model: model}, nil
+// apiKey is an optional per-request key override; if empty, providers fall back to env vars.
+func NewReviewer(model, apiKey string) (*Reviewer, error) {
+	return &Reviewer{model: model, apiKey: apiKey}, nil
 }
 
 // Review runs Phase A (heuristic checks) and optionally Phase B (LLM review).
@@ -57,7 +59,7 @@ func (r *Reviewer) Review(ctx context.Context, s *Script, content string, opts G
 	}
 
 	// Phase B: LLM review — send script + issues back to the same model
-	gen, err := NewGenerator(r.model)
+	gen, err := NewGenerator(r.model, r.apiKey)
 	if err != nil {
 		// If we can't create a generator, return issues without revision
 		return &ReviewResult{

@@ -1,5 +1,14 @@
-podcaster
+/podcaster
+/mcp-server
+/play-counter
+/bootstrap
 *.mp3
 *.json
 !docs/*.json
+!deploy/infrastructure/*.json
+!deploy/infrastructure/**/*.json
 podcaster-output/
+deploy/sdk/
+deploy/lambda-build/
+deploy/infrastructure/node_modules/
+deploy/infrastructure/cdk.out/

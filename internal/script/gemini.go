@@ -24,10 +24,13 @@ type GeminiGenerator struct {
 	httpClient *http.Client
 }
 
-func NewGeminiGenerator(model string) *GeminiGenerator {
+func NewGeminiGenerator(model, apiKey string) *GeminiGenerator {
+	if apiKey == "" {
+		apiKey = os.Getenv("GEMINI_API_KEY")
+	}
 	return &GeminiGenerator{
 		model:      model,
-		apiKey:     os.Getenv("GEMINI_API_KEY"),
+		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}
 }

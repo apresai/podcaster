@@ -1,0 +1,11 @@
+podcaster-output/
+*.mp3
+*.mp4
+.git/
+bin/
+podcaster
+mcp-server
+play-counter
+bootstrap
+deploy/infrastructure/node_modules/
+deploy/infrastructure/cdk.out/

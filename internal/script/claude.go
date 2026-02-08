@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 var claudeModels = map[string]string{
@@ -35,15 +36,21 @@ func maxTokensForDuration(duration string) int64 {
 }
 
 type ClaudeGenerator struct {
-	model string
+	model  string
+	apiKey string // optional per-request override; empty = use env ANTHROPIC_API_KEY
 }
 
-func NewClaudeGenerator(model string) *ClaudeGenerator {
-	return &ClaudeGenerator{model: model}
+func NewClaudeGenerator(model, apiKey string) *ClaudeGenerator {
+	return &ClaudeGenerator{model: model, apiKey: apiKey}
 }
 
 func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts GenerateOptions) (*Script, error) {
-	client := anthropic.NewClient()
+	var client anthropic.Client
+	if g.apiKey != "" {
+		client = anthropic.NewClient(option.WithAPIKey(g.apiKey))
+	} else {
+		client = anthropic.NewClient()
+	}
 
 	personas := buildPersonaSlice(opts.Voices, opts.SpeakerNames)
 	sysPrompt := buildSystemPrompt(personas)
@@ -63,8 +70,8 @@ func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts Gen
 		}
 
 		message, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-			Model:     anthropic.Model(modelID),
-			MaxTokens: maxTokensForDuration(opts.Duration),
+			Model:       anthropic.Model(modelID),
+			MaxTokens:   maxTokensForDuration(opts.Duration),
 			Temperature: anthropic.Float(temperature),
 			System: []anthropic.TextBlockParam{
 				{Text: sysPrompt},

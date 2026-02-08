@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	elevenLabsDefaultVoice1 = "R1iO02imWa46t8ckcxFN"  // Chad
-	elevenLabsDefaultVoice2 = "56bWURjYFHyYyVf490Dp"  // Emma
-	elevenLabsDefaultVoice3 = "iWP0zWXsAkUmG0R4IMeO"  // Burt Reynolds™
+	elevenLabsDefaultVoice1 = "R1iO02imWa46t8ckcxFN" // Chad
+	elevenLabsDefaultVoice2 = "56bWURjYFHyYyVf490Dp" // Emma
+	elevenLabsDefaultVoice3 = "iWP0zWXsAkUmG0R4IMeO" // Burt Reynolds™
 
 	elevenLabsBaseURL      = "https://api.elevenlabs.io/v1/text-to-speech"
 	elevenLabsVoicesURL    = "https://api.elevenlabs.io/v1/voices"
@@ -74,13 +74,18 @@ func NewElevenLabsProvider(voice1, voice2, voice3 string, cfg ProviderConfig) *E
 		stability = cfg.Stability
 	}
 
+	apiKey := cfg.APIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("ELEVENLABS_API_KEY")
+	}
+
 	return &ElevenLabsProvider{
 		voices: VoiceMap{
 			Host1: Voice{ID: v1, Name: "Chad"},
 			Host2: Voice{ID: v2, Name: "Emma"},
 			Host3: Voice{ID: v3, Name: "Burt Reynolds™"},
 		},
-		apiKey:     os.Getenv("ELEVENLABS_API_KEY"),
+		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 		model:      model,
 		speed:      speed,
