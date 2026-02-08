@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 )
 
 // Config holds server configuration.
@@ -57,6 +58,9 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
 
+	// Auto-instrument AWS SDK calls (DynamoDB, S3, Secrets Manager)
+	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
+
 	// Fetch secrets if running in AWS
 	if cfg.SecretPrefix != "" {
 		if err := loadSecrets(ctx, awsCfg, cfg.SecretPrefix, logger); err != nil {
@@ -101,6 +105,11 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 }
 
 // Start runs the HTTP MCP server.
+// NOTE: We use mcp-go's built-in Start() with WithStateLess(true) because
+// AgentCore generates its own Mcp-Session-Id headers (plain UUIDs without
+// the "mcp-session-" prefix). Wrapping with otelhttp breaks this because
+// it changes the http.Handler chain — mcp-go's Start() creates its own mux
+// internally. See AgentCore MCP protocol contract requirements.
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.cfg.Port)
 	s.log.Info("Starting MCP server", "addr", addr)

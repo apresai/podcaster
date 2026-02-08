@@ -87,8 +87,13 @@ deploy-agentcore:
 		--region $(AWS_REGION)
 
 update-agentcore:
-	@RUNTIME_ID=$$(aws bedrock-agentcore-control list-agent-runtimes --query "agentRuntimeSummaries[?agentRuntimeName=='podcaster_mcp'].agentRuntimeId" --output text --region $(AWS_REGION)); \
+	@RUNTIME_ID=$$(aws bedrock-agentcore-control list-agent-runtimes --query "agentRuntimes[?agentRuntimeName=='podcaster_mcp'].agentRuntimeId" --output text --region $(AWS_REGION)); \
+	echo "Updating runtime $$RUNTIME_ID..."; \
 	aws bedrock-agentcore-control update-agent-runtime \
 		--agent-runtime-id $$RUNTIME_ID \
-		--agent-runtime-artifact containerConfiguration={containerUri="$(ECR_URI):latest"} \
+		--agent-runtime-artifact '{"containerConfiguration":{"containerUri":"$(ECR_URI):latest"}}' \
+		--role-arn $(AGENTCORE_ROLE_ARN) \
+		--network-configuration '{"networkMode":"PUBLIC"}' \
+		--protocol-configuration '{"serverProtocol":"MCP"}' \
+		--environment-variables '{"DYNAMODB_TABLE":"$(DYNAMODB_TABLE)","S3_BUCKET":"$(S3_BUCKET)","CDN_BASE_URL":"$(CDN_BASE_URL)","SECRET_PREFIX":"/podcaster/mcp/"}' \
 		--region $(AWS_REGION)

@@ -2,23 +2,32 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/apresai/podcaster/internal/mcpserver"
+	"github.com/apresai/podcaster/internal/observability"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	logger := observability.InitLogger()
 
 	logger.Info("Podcaster MCP Server starting...")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	tp, err := observability.InitTracer(ctx, "podcaster-mcp", "1.0.0")
+	if err != nil {
+		logger.Warn("Failed to init tracer, continuing without tracing", "error", err)
+	} else {
+		defer func() {
+			if err := tp.Shutdown(context.Background()); err != nil {
+				logger.Error("Tracer shutdown error", "error", err)
+			}
+		}()
+	}
 
 	cfg := mcpserver.DefaultConfig()
 
