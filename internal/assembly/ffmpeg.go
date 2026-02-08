@@ -39,20 +39,17 @@ func (a *FFmpegAssembler) Assemble(ctx context.Context, segments []string, tmpDi
 	if err := generateSilence(ctx, silencePath); err != nil {
 		return fmt.Errorf("generate silence: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "    Generated 200ms silence: %s\n", silencePath)
 
 	// Build concat list
 	listPath := filepath.Join(tmpDir, "concat.txt")
 	if err := buildConcatList(segments, silencePath, listPath); err != nil {
 		return fmt.Errorf("build concat list: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "    Built concat list: %d segments + %d silences\n", len(segments), len(segments)-1)
 
 	// Run FFmpeg concat
 	if err := runFFmpegConcat(ctx, listPath, output); err != nil {
 		return fmt.Errorf("ffmpeg concat: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "    FFmpeg concat complete: %s\n", output)
 
 	return nil
 }

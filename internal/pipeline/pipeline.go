@@ -15,6 +15,7 @@ import (
 
 	"github.com/apresai/podcaster/internal/assembly"
 	"github.com/apresai/podcaster/internal/ingest"
+	"github.com/apresai/podcaster/internal/progress"
 	"github.com/apresai/podcaster/internal/script"
 	"github.com/apresai/podcaster/internal/tts"
 )
@@ -46,6 +47,7 @@ type Options struct {
 	TTSSpeed       float64 // --tts-speed
 	TTSStability   float64 // --tts-stability (ElevenLabs)
 	TTSPitch       float64 // --tts-pitch (Google)
+	OnProgress     progress.Callback
 }
 
 type PipelineError struct {
@@ -110,7 +112,7 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Voices = 2
 	}
 
-	// Set up logging — write to both stdout and log file
+	// Set up logging — when not verbose, write to log file only (progress bar handles stdout)
 	var logWriter io.Writer = os.Stdout
 	if opts.LogFile != "" {
 		lf, err := os.Create(opts.LogFile)
@@ -118,11 +120,22 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("create log file: %w", err)
 		}
 		defer lf.Close()
-		logWriter = io.MultiWriter(os.Stdout, lf)
+		if opts.Verbose {
+			logWriter = io.MultiWriter(os.Stdout, lf)
+		} else {
+			logWriter = lf
+		}
 	}
 	logger := log.New(logWriter, "", log.LstdFlags)
 	logf := func(format string, args ...interface{}) {
 		logger.Printf(format, args...)
+	}
+
+	// Progress emit helper
+	emit := func(stage progress.Stage, msg string, pct float64) {
+		if opts.OnProgress != nil {
+			opts.OnProgress(progress.NewEvent(stage, msg, pct, pipelineStart))
+		}
 	}
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -148,6 +161,7 @@ func Run(ctx context.Context, opts Options) error {
 	} else {
 		// Stage 1: Ingest
 		stageStart := time.Now()
+		emit(progress.StageIngest, "Ingesting content...", 0.0)
 		logf("Stage 1/4: Ingesting content from %s", opts.Input)
 		ingester := ingest.NewIngester(opts.Input)
 		content, err := ingester.Ingest(ctx, opts.Input)
@@ -156,6 +170,7 @@ func Run(ctx context.Context, opts Options) error {
 			return &PipelineError{Stage: "ingest", Message: "failed to extract content", Err: err}
 		}
 		logf("Ingest complete: %d words from %s (%s)", content.WordCount, content.Source, time.Since(stageStart).Round(time.Millisecond))
+		emit(progress.StageIngest, "Ingest complete", 0.05)
 
 		if opts.Verbose {
 			logf("  Title: %s", content.Title)
@@ -173,7 +188,9 @@ func Run(ctx context.Context, opts Options) error {
 
 		// Stage 2: Script Generation
 		stageStart = time.Now()
-		logf("Stage 2/4: Generating script with %s...", script.ModelDisplayName(opts.Model))
+		modelName := script.ModelDisplayName(opts.Model)
+		emit(progress.StageScript, fmt.Sprintf("Generating script (%s)...", modelName), 0.05)
+		logf("Stage 2/4: Generating script with %s...", modelName)
 		gen, err := script.NewGenerator(opts.Model)
 		if err != nil {
 			logf("ERROR: failed to create script generator: %v", err)
@@ -193,6 +210,7 @@ func Run(ctx context.Context, opts Options) error {
 			return &PipelineError{Stage: "script", Message: "failed to generate script", Err: err}
 		}
 		logf("Script complete: %d segments, ~%d min (%s)", len(s.Segments), estimateMinutes(s), time.Since(stageStart).Round(time.Millisecond))
+		emit(progress.StageScript, "Script complete", 0.20)
 	}
 
 	// Save the script to the scripts subdirectory
@@ -208,11 +226,13 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	if opts.ScriptOnly {
+		emit(progress.StageComplete, fmt.Sprintf("Script saved to %s", scriptPath), 1.0)
 		return nil
 	}
 
 	// Stage 3: TTS
 	stageStart := time.Now()
+	emit(progress.StageTTS, fmt.Sprintf("Synthesizing audio (%d segments)...", len(s.Segments)), 0.20)
 
 	// Build provider set for lazy provider creation
 	ps := tts.NewProviderSet()
@@ -305,6 +325,7 @@ func Run(ctx context.Context, opts Options) error {
 			}
 
 			logf("TTS complete: format=%s (%s)", result.Format, time.Since(stageStart).Round(time.Millisecond))
+			emit(progress.StageTTS, "TTS complete", 0.90)
 
 			// Convert to MP3 if needed, or write directly
 			if result.Format != tts.FormatMP3 {
@@ -317,6 +338,7 @@ func Run(ctx context.Context, opts Options) error {
 				if err := os.WriteFile(rawPath, result.Data, 0644); err != nil {
 					return &PipelineError{Stage: "tts", Message: "failed to write raw audio", Err: err}
 				}
+				emit(progress.StageAssembly, "Assembling episode...", 0.90)
 				logf("Stage 4/4: Converting to MP3...")
 				if err := assembly.ConvertToMP3(ctx, rawPath, string(result.Format), opts.Output); err != nil {
 					logf("ERROR: MP3 conversion failed: %v", err)
@@ -339,7 +361,7 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			logf("  Temp directory: %s", tmpDir)
 
-			audioFiles, err := synthesizeSegments(ctx, provider, s.Segments, voices, tmpDir, logf)
+			audioFiles, err := synthesizeSegments(ctx, provider, s.Segments, voices, tmpDir, logf, opts.OnProgress, pipelineStart)
 			if err != nil {
 				logf("ERROR: TTS synthesis failed: %v", err)
 				logf("  Segments preserved in: %s", tmpDir)
@@ -360,6 +382,7 @@ func Run(ctx context.Context, opts Options) error {
 
 			// Stage 4: Assembly
 			stageStart = time.Now()
+			emit(progress.StageAssembly, "Assembling episode...", 0.90)
 			logf("Stage 4/4: Assembling episode...")
 			assembler := assembly.NewFFmpegAssembler()
 			if err := assembler.Assemble(ctx, audioFiles, tmpDir, opts.Output); err != nil {
@@ -380,7 +403,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		logf("  Temp directory: %s", tmpDir)
 
-		audioFiles, err := synthesizeSegmentsMixed(ctx, ps, s.Segments, voices, tmpDir, logf)
+		audioFiles, err := synthesizeSegmentsMixed(ctx, ps, s.Segments, voices, tmpDir, logf, opts.OnProgress, pipelineStart)
 		if err != nil {
 			logf("ERROR: TTS synthesis failed: %v", err)
 			logf("  Segments preserved in: %s", tmpDir)
@@ -401,6 +424,7 @@ func Run(ctx context.Context, opts Options) error {
 
 		// Stage 4: Assembly
 		stageStart = time.Now()
+		emit(progress.StageAssembly, "Assembling episode...", 0.90)
 		logf("Stage 4/4: Assembling episode...")
 		assembler := assembly.NewFFmpegAssembler()
 		if err := assembler.Assemble(ctx, audioFiles, tmpDir, opts.Output); err != nil {
@@ -415,20 +439,32 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	// Report final output
+	var completionEvent progress.Event
+	completionEvent.Stage = progress.StageComplete
+	completionEvent.LogFile = opts.LogFile
+	completionEvent.Elapsed = time.Since(pipelineStart)
+
 	info, err := os.Stat(opts.Output)
 	if err == nil {
 		sizeMB := float64(info.Size()) / (1024 * 1024)
 		duration := ProbeDuration(opts.Output)
+		completionEvent.OutputFile = opts.Output
+		completionEvent.SizeMB = sizeMB
+		completionEvent.Duration = duration
+		completionEvent.Percent = 1.0
 		if duration != "" {
 			logf("Episode saved to %s (%s, %.1f MB)", opts.Output, duration, sizeMB)
+			completionEvent.Message = fmt.Sprintf("Episode saved to %s (%s, %.1f MB)", opts.Output, duration, sizeMB)
 		} else {
 			logf("Episode saved to %s (%.1f MB)", opts.Output, sizeMB)
+			completionEvent.Message = fmt.Sprintf("Episode saved to %s (%.1f MB)", opts.Output, sizeMB)
 		}
 	}
 
 	logf("Total pipeline time: %s", time.Since(pipelineStart).Round(time.Millisecond))
-	if opts.LogFile != "" {
-		fmt.Printf("  Log written to %s\n", opts.LogFile)
+
+	if opts.OnProgress != nil {
+		opts.OnProgress(completionEvent)
 	}
 
 	return nil
@@ -436,7 +472,7 @@ func Run(ctx context.Context, opts Options) error {
 
 // synthesizeSegments runs per-segment TTS with progress output, converting
 // non-MP3 formats to MP3 as needed.
-func synthesizeSegments(ctx context.Context, provider tts.Provider, segments []script.Segment, voices tts.VoiceMap, tmpDir string, logf func(string, ...interface{})) ([]string, error) {
+func synthesizeSegments(ctx context.Context, provider tts.Provider, segments []script.Segment, voices tts.VoiceMap, tmpDir string, logf func(string, ...interface{}), onProgress progress.Callback, pipelineStart time.Time) ([]string, error) {
 	total := len(segments)
 	files := make([]string, 0, total)
 
@@ -448,6 +484,18 @@ func synthesizeSegments(ctx context.Context, provider tts.Provider, segments []s
 		voice := tts.VoiceForSpeaker(seg.Speaker, voices)
 
 		logf("  Synthesizing segment %d/%d (%s, %d chars)", i+1, total, seg.Speaker, len(seg.Text))
+
+		if onProgress != nil {
+			pct := 0.20 + 0.70*float64(i)/float64(total)
+			onProgress(progress.Event{
+				Stage:        progress.StageTTS,
+				Message:      fmt.Sprintf("Synthesizing segment %d/%d (%s, %s)", i+1, total, seg.Speaker, voice.Provider),
+				Percent:      pct,
+				SegmentNum:   i + 1,
+				SegmentTotal: total,
+				Elapsed:      time.Since(pipelineStart),
+			})
+		}
 
 		var result tts.AudioResult
 		err := tts.WithRetry(ctx, func() error {
@@ -478,13 +526,23 @@ func synthesizeSegments(ctx context.Context, provider tts.Provider, segments []s
 		files = append(files, filename)
 	}
 
+	// Emit TTS complete
+	if onProgress != nil {
+		onProgress(progress.Event{
+			Stage:   progress.StageTTS,
+			Message: "TTS complete",
+			Percent: 0.90,
+			Elapsed: time.Since(pipelineStart),
+		})
+	}
+
 	return files, nil
 }
 
 // synthesizeSegmentsMixed runs per-segment TTS with provider routing for
 // mixed-provider episodes. Each segment is routed to the provider specified
 // in the voice's Provider field via ProviderSet.
-func synthesizeSegmentsMixed(ctx context.Context, ps *tts.ProviderSet, segments []script.Segment, voices tts.VoiceMap, tmpDir string, logf func(string, ...interface{})) ([]string, error) {
+func synthesizeSegmentsMixed(ctx context.Context, ps *tts.ProviderSet, segments []script.Segment, voices tts.VoiceMap, tmpDir string, logf func(string, ...interface{}), onProgress progress.Callback, pipelineStart time.Time) ([]string, error) {
 	total := len(segments)
 	files := make([]string, 0, total)
 
@@ -500,6 +558,18 @@ func synthesizeSegmentsMixed(ctx context.Context, ps *tts.ProviderSet, segments 
 		}
 
 		logf("  Synthesizing segment %d/%d (%s, %d chars, %s)", i+1, total, seg.Speaker, len(seg.Text), voice.Provider)
+
+		if onProgress != nil {
+			pct := 0.20 + 0.70*float64(i)/float64(total)
+			onProgress(progress.Event{
+				Stage:        progress.StageTTS,
+				Message:      fmt.Sprintf("Synthesizing segment %d/%d (%s, %s)", i+1, total, seg.Speaker, voice.Provider),
+				Percent:      pct,
+				SegmentNum:   i + 1,
+				SegmentTotal: total,
+				Elapsed:      time.Since(pipelineStart),
+			})
+		}
 
 		var result tts.AudioResult
 		err = tts.WithRetry(ctx, func() error {
@@ -530,24 +600,17 @@ func synthesizeSegmentsMixed(ctx context.Context, ps *tts.ProviderSet, segments 
 		files = append(files, filename)
 	}
 
+	// Emit TTS complete
+	if onProgress != nil {
+		onProgress(progress.Event{
+			Stage:   progress.StageTTS,
+			Message: "TTS complete",
+			Percent: 0.90,
+			Elapsed: time.Since(pipelineStart),
+		})
+	}
+
 	return files, nil
-}
-
-func progressBar(pct, width int) string {
-	filled := (pct * width) / 100
-	if filled > width {
-		filled = width
-	}
-	empty := width - filled
-	return fmt.Sprintf("%s%s", repeatStr("█", filled), repeatStr("░", empty))
-}
-
-func repeatStr(s string, n int) string {
-	result := ""
-	for i := 0; i < n; i++ {
-		result += s
-	}
-	return result
 }
 
 func ProbeDuration(path string) string {

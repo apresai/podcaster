@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/apresai/podcaster/internal/pipeline"
+	"github.com/apresai/podcaster/internal/progress"
 	"github.com/apresai/podcaster/internal/tts"
 	"github.com/spf13/cobra"
 )
@@ -262,6 +263,13 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		TTSSpeed:       flagTTSSpeed,
 		TTSStability:   flagTTSStability,
 		TTSPitch:       flagTTSPitch,
+	}
+
+	// Wire up progress bar when not in verbose mode
+	if !flagVerbose {
+		r := progress.NewBarRenderer(os.Stdout)
+		defer r.Finish()
+		opts.OnProgress = r.Handle
 	}
 
 	return pipeline.Run(cmd.Context(), opts)
