@@ -127,16 +127,59 @@ func WithRetry(ctx context.Context, fn func() error) error {
 	return lastErr
 }
 
+// ProviderConfig holds model and voice settings passed to provider constructors.
+type ProviderConfig struct {
+	Model     string  // provider-specific model ID (empty = default)
+	Speed     float64 // speech speed (0 = provider default)
+	Stability float64 // ElevenLabs voice stability 0-1 (0 = default 0.5)
+	Pitch     float64 // Google Cloud pitch in semitones (0 = default)
+}
+
+// validModels maps provider names to their valid model IDs.
+var validModels = map[string]map[string]bool{
+	"elevenlabs": {
+		"eleven_v3":              true,
+		"eleven_multilingual_v2": true,
+		"eleven_turbo_v2_5":     true,
+		"eleven_flash_v2_5":     true,
+	},
+	"gemini": {
+		"gemini-2.5-pro-tts":   true,
+		"gemini-2.5-flash-tts": true,
+	},
+}
+
+// ValidateModel checks that the given model ID is valid for the provider.
+// Returns nil if model is empty (use default) or valid.
+func ValidateModel(provider, model string) error {
+	if model == "" {
+		return nil
+	}
+	models, ok := validModels[provider]
+	if !ok {
+		// Provider has no model selection (e.g., google)
+		return fmt.Errorf("provider %q does not support --tts-model", provider)
+	}
+	if !models[model] {
+		var valid []string
+		for m := range models {
+			valid = append(valid, m)
+		}
+		return fmt.Errorf("invalid TTS model %q for provider %q: valid models are %s", model, provider, strings.Join(valid, ", "))
+	}
+	return nil
+}
+
 // NewProvider creates a TTS provider by name. voice1, voice2, and voice3 are
 // optional provider-specific voice ID overrides for hosts 1-3.
-func NewProvider(name string, voice1, voice2, voice3 string) (Provider, error) {
+func NewProvider(name string, voice1, voice2, voice3 string, cfg ProviderConfig) (Provider, error) {
 	switch name {
 	case "elevenlabs":
-		return NewElevenLabsProvider(voice1, voice2, voice3), nil
+		return NewElevenLabsProvider(voice1, voice2, voice3, cfg), nil
 	case "google":
-		return NewGoogleProvider(voice1, voice2, voice3)
+		return NewGoogleProvider(voice1, voice2, voice3, cfg)
 	case "gemini":
-		return NewGeminiProvider(voice1, voice2, voice3), nil
+		return NewGeminiProvider(voice1, voice2, voice3, cfg), nil
 	default:
 		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, or gemini", name)
 	}
@@ -160,13 +203,23 @@ func ParseVoiceSpec(spec string) (provider, voiceID string) {
 type ProviderSet struct {
 	mu        sync.Mutex
 	providers map[string]Provider
+	configs   map[string]ProviderConfig
 }
 
 // NewProviderSet creates an empty provider pool.
 func NewProviderSet() *ProviderSet {
 	return &ProviderSet{
 		providers: make(map[string]Provider),
+		configs:   make(map[string]ProviderConfig),
 	}
+}
+
+// SetConfig stores a ProviderConfig for the named provider.
+// Must be called before Get() for that provider.
+func (ps *ProviderSet) SetConfig(name string, cfg ProviderConfig) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.configs[name] = cfg
 }
 
 // Get returns a provider by name, creating it on first call.
@@ -179,7 +232,8 @@ func (ps *ProviderSet) Get(name string) (Provider, error) {
 		return p, nil
 	}
 
-	p, err := NewProvider(name, "", "", "")
+	cfg := ps.configs[name] // zero value if not set
+	p, err := NewProvider(name, "", "", "", cfg)
 	if err != nil {
 		return nil, err
 	}

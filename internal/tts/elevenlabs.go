@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	elevenLabsDefaultVoice1 = "4YYIPFl9wE5c4L2eu2Gb"  // Burt Reynolds™
+	elevenLabsDefaultVoice1 = "R1iO02imWa46t8ckcxFN"  // Chad
 	elevenLabsDefaultVoice2 = "56bWURjYFHyYyVf490Dp"  // Emma
-	elevenLabsDefaultVoice3 = "UgBBYS2sOqTuMpoF3BR0"  // Mark
+	elevenLabsDefaultVoice3 = "iWP0zWXsAkUmG0R4IMeO"  // Burt Reynolds™
 
 	elevenLabsBaseURL      = "https://api.elevenlabs.io/v1/text-to-speech"
 	elevenLabsVoicesURL    = "https://api.elevenlabs.io/v1/voices"
-	elevenLabsModelID      = "eleven_flash_v2_5"
+	elevenLabsDefaultModel = "eleven_v3"
 	elevenLabsOutputFormat = "mp3_44100_192"
 )
 
@@ -42,9 +42,12 @@ type ElevenLabsProvider struct {
 	voices     VoiceMap
 	apiKey     string
 	httpClient *http.Client
+	model      string
+	speed      float64
+	stability  float64
 }
 
-func NewElevenLabsProvider(voice1, voice2, voice3 string) *ElevenLabsProvider {
+func NewElevenLabsProvider(voice1, voice2, voice3 string, cfg ProviderConfig) *ElevenLabsProvider {
 	v1 := elevenLabsDefaultVoice1
 	v2 := elevenLabsDefaultVoice2
 	v3 := elevenLabsDefaultVoice3
@@ -57,14 +60,31 @@ func NewElevenLabsProvider(voice1, voice2, voice3 string) *ElevenLabsProvider {
 	if voice3 != "" {
 		v3 = voice3
 	}
+
+	model := elevenLabsDefaultModel
+	if cfg.Model != "" {
+		model = cfg.Model
+	}
+	speed := 1.0
+	if cfg.Speed != 0 {
+		speed = cfg.Speed
+	}
+	stability := 0.5
+	if cfg.Stability != 0 {
+		stability = cfg.Stability
+	}
+
 	return &ElevenLabsProvider{
 		voices: VoiceMap{
-			Host1: Voice{ID: v1, Name: "Burt Reynolds™"},
+			Host1: Voice{ID: v1, Name: "Chad"},
 			Host2: Voice{ID: v2, Name: "Emma"},
-			Host3: Voice{ID: v3, Name: "Mark"},
+			Host3: Voice{ID: v3, Name: "Burt Reynolds™"},
 		},
 		apiKey:     os.Getenv("ELEVENLABS_API_KEY"),
 		httpClient: &http.Client{Timeout: 60 * time.Second},
+		model:      model,
+		speed:      speed,
+		stability:  stability,
 	}
 }
 
@@ -72,9 +92,9 @@ func (p *ElevenLabsProvider) Name() string { return "elevenlabs" }
 
 func (p *ElevenLabsProvider) DefaultVoices() VoiceMap {
 	return VoiceMap{
-		Host1: Voice{ID: elevenLabsDefaultVoice1, Name: "Burt Reynolds™"},
+		Host1: Voice{ID: elevenLabsDefaultVoice1, Name: "Chad"},
 		Host2: Voice{ID: elevenLabsDefaultVoice2, Name: "Emma"},
-		Host3: Voice{ID: elevenLabsDefaultVoice3, Name: "Mark"},
+		Host3: Voice{ID: elevenLabsDefaultVoice3, Name: "Burt Reynolds™"},
 	}
 }
 
@@ -82,13 +102,13 @@ func (p *ElevenLabsProvider) Synthesize(ctx context.Context, text string, voice 
 	start := time.Now()
 	reqBody := elevenLabsRequest{
 		Text:    text,
-		ModelID: elevenLabsModelID,
+		ModelID: p.model,
 		VoiceSettings: &elevenLabsVoiceParams{
-			Stability:       0.5,
+			Stability:       p.stability,
 			SimilarityBoost: 0.75,
 			Style:           0.0,
-			UseSpeakerBoost: true,
-			Speed:           1.0,
+			UseSpeakerBoost: p.model != "eleven_v3",
+			Speed:           p.speed,
 		},
 	}
 
@@ -221,18 +241,15 @@ func elevenLabsAvailableVoices() []VoiceInfo {
 
 	// Fallback to hardcoded list.
 	return []VoiceInfo{
-		{ID: "4YYIPFl9wE5c4L2eu2Gb", Name: "Burt Reynolds™", Gender: "male", Description: "Deep, Smooth and clear", DefaultFor: "Voice 1"},
+		{ID: "R1iO02imWa46t8ckcxFN", Name: "Chad", Gender: "male", Description: "en-american", DefaultFor: "Voice 1"},
 		{ID: "56bWURjYFHyYyVf490Dp", Name: "Emma", Gender: "female", Description: "Warm Australian female", DefaultFor: "Voice 2"},
-		{ID: "UgBBYS2sOqTuMpoF3BR0", Name: "Mark", Gender: "male", Description: "Natural Conversations", DefaultFor: "Voice 3"},
-		{ID: "xuqUPASjAdyZvCNoMTEj", Name: "Chad", Gender: "male", Description: "Cloned voice"},
+		{ID: "iWP0zWXsAkUmG0R4IMeO", Name: "Burt Reynolds™", Gender: "male", Description: "Masculine Iconic Storyteller", DefaultFor: "Voice 3"},
+		{ID: "4YYIPFl9wE5c4L2eu2Gb", Name: "Burt Reynolds™", Gender: "male", Description: "Deep, Smooth and clear"},
+		{ID: "UgBBYS2sOqTuMpoF3BR0", Name: "Mark", Gender: "male", Description: "Natural Conversations"},
 		{ID: "JBFqnCBsd6RMkjVDRZzb", Name: "George", Gender: "male", Description: "Warm British male"},
 		{ID: "EXAVITQu4vr4xnSDxMaL", Name: "Sarah", Gender: "female", Description: "Soft American female"},
 		{ID: "pNInz6obpgDQGcFmaJgB", Name: "Adam", Gender: "male", Description: "Deep American male"},
-		{ID: "ErXwobaYiN019PkySvjV", Name: "Antoni", Gender: "male", Description: "Young, conversational male"},
-		{ID: "MF3mGyEYCl7XYWbV9V6O", Name: "Elli", Gender: "female", Description: "Bright, expressive female"},
-		{ID: "VR6AewLTigWG4xSOukaG", Name: "Arnold", Gender: "male", Description: "Deep, gravelly male"},
 		{ID: "onwK4e9ZLuTAKqWW03F9", Name: "Daniel", Gender: "male", Description: "Authoritative British male"},
-		{ID: "XB0fDUnXU5powFXDhCwa", Name: "Charlotte", Gender: "female", Description: "Warm Swedish-English female"},
 		{ID: "pFZP5JQG7iQjIQuC4Bku", Name: "Lily", Gender: "female", Description: "Warm British female"},
 	}
 }

@@ -19,7 +19,8 @@ const (
 	geminiDefaultVoice2 = "Leda"
 	geminiDefaultVoice3 = "Fenrir"
 
-	geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent"
+	geminiDefaultTTSModel = "gemini-2.5-pro-tts"
+	geminiEndpointBase    = "https://generativelanguage.googleapis.com/v1beta/models/"
 )
 
 // geminiRequest is the top-level request to the Gemini generateContent TTS endpoint.
@@ -90,9 +91,10 @@ type GeminiProvider struct {
 	voices     VoiceMap
 	apiKey     string
 	httpClient *http.Client
+	model      string
 }
 
-func NewGeminiProvider(voice1, voice2, voice3 string) *GeminiProvider {
+func NewGeminiProvider(voice1, voice2, voice3 string, cfg ProviderConfig) *GeminiProvider {
 	v1 := geminiDefaultVoice1
 	v2 := geminiDefaultVoice2
 	v3 := geminiDefaultVoice3
@@ -105,6 +107,12 @@ func NewGeminiProvider(voice1, voice2, voice3 string) *GeminiProvider {
 	if voice3 != "" {
 		v3 = voice3
 	}
+
+	model := geminiDefaultTTSModel
+	if cfg.Model != "" {
+		model = cfg.Model
+	}
+
 	return &GeminiProvider{
 		voices: VoiceMap{
 			Host1: Voice{ID: v1, Name: v1},
@@ -113,7 +121,13 @@ func NewGeminiProvider(voice1, voice2, voice3 string) *GeminiProvider {
 		},
 		apiKey:     os.Getenv("GEMINI_API_KEY"),
 		httpClient: &http.Client{Timeout: 300 * time.Second},
+		model:      model,
 	}
+}
+
+// endpoint returns the full API URL for this provider's model.
+func (p *GeminiProvider) endpoint() string {
+	return geminiEndpointBase + p.model + ":generateContent"
 }
 
 func (p *GeminiProvider) Name() string { return "gemini" }
@@ -208,7 +222,7 @@ func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest) (
 		return nil, fmt.Errorf("marshal Gemini request: %w", err)
 	}
 
-	url := geminiEndpoint + "?key=" + p.apiKey
+	url := p.endpoint() + "?key=" + p.apiKey
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {

@@ -20,9 +20,11 @@ const (
 type GoogleProvider struct {
 	voices VoiceMap
 	client *texttospeech.Client
+	speed  float64
+	pitch  float64
 }
 
-func NewGoogleProvider(voice1, voice2, voice3 string) (*GoogleProvider, error) {
+func NewGoogleProvider(voice1, voice2, voice3 string, cfg ProviderConfig) (*GoogleProvider, error) {
 	v1 := googleDefaultVoice1
 	v2 := googleDefaultVoice2
 	v3 := googleDefaultVoice3
@@ -48,6 +50,8 @@ func NewGoogleProvider(voice1, voice2, voice3 string) (*GoogleProvider, error) {
 			Host3: Voice{ID: v3, Name: "Fenrir"},
 		},
 		client: client,
+		speed:  cfg.Speed,
+		pitch:  cfg.Pitch,
 	}, nil
 }
 
@@ -71,9 +75,7 @@ func (p *GoogleProvider) Synthesize(ctx context.Context, text string, voice Voic
 			LanguageCode: "en-US",
 			Name:         voice.ID,
 		},
-		AudioConfig: &texttospeechpb.AudioConfig{
-			AudioEncoding: texttospeechpb.AudioEncoding_MP3,
-		},
+		AudioConfig: p.audioConfig(),
 	}
 
 	resp, err := p.client.SynthesizeSpeech(ctx, req)
@@ -83,6 +85,19 @@ func (p *GoogleProvider) Synthesize(ctx context.Context, text string, voice Voic
 
 	fmt.Fprintf(os.Stderr, "    Google TTS: %d chars → %d bytes (%s)\n", len(text), len(resp.AudioContent), time.Since(start).Round(time.Millisecond))
 	return AudioResult{Data: resp.AudioContent, Format: FormatMP3}, nil
+}
+
+func (p *GoogleProvider) audioConfig() *texttospeechpb.AudioConfig {
+	cfg := &texttospeechpb.AudioConfig{
+		AudioEncoding: texttospeechpb.AudioEncoding_MP3,
+	}
+	if p.speed != 0 {
+		cfg.SpeakingRate = p.speed
+	}
+	if p.pitch != 0 {
+		cfg.Pitch = p.pitch
+	}
+	return cfg
 }
 
 func (p *GoogleProvider) Close() error { return p.client.Close() }

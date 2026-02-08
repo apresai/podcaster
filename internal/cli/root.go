@@ -44,22 +44,26 @@ var listVoicesCmd = &cobra.Command{
 }
 
 var (
-	flagInput      string
-	flagOutput     string
-	flagTopic      string
-	flagTone       string
-	flagDuration   string
-	flagStyle      string
-	flagVoice1     string
-	flagVoice2     string
-	flagVoice3     string
-	flagVoices     int
-	flagScriptOnly bool
-	flagFromScript string
-	flagVerbose    bool
-	flagTTS        string
-	flagModel      string
-	flagTUI        bool
+	flagInput        string
+	flagOutput       string
+	flagTopic        string
+	flagTone         string
+	flagDuration     string
+	flagStyle        string
+	flagVoice1       string
+	flagVoice2       string
+	flagVoice3       string
+	flagVoices       int
+	flagScriptOnly   bool
+	flagFromScript   string
+	flagVerbose      bool
+	flagTTS          string
+	flagModel        string
+	flagTUI          bool
+	flagTTSModel     string
+	flagTTSSpeed     float64
+	flagTTSStability float64
+	flagTTSPitch     float64
 )
 
 func init() {
@@ -82,6 +86,10 @@ func init() {
 	generateCmd.Flags().BoolVarP(&flagTUI, "tui", "t", false, "Interactive setup wizard for generation options")
 	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "TTS provider: elevenlabs, google, or gemini (default gemini)")
 	generateCmd.Flags().StringVarP(&flagModel, "model", "m", "haiku", "Script generation model: haiku, sonnet, gemini-flash, gemini-pro")
+	generateCmd.Flags().StringVar(&flagTTSModel, "tts-model", "", "TTS model ID (e.g., eleven_v3, gemini-2.5-flash-tts)")
+	generateCmd.Flags().Float64Var(&flagTTSSpeed, "tts-speed", 0, "Speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0)")
+	generateCmd.Flags().Float64Var(&flagTTSStability, "tts-stability", 0, "Voice stability, ElevenLabs only (0.0-1.0)")
+	generateCmd.Flags().Float64Var(&flagTTSPitch, "tts-pitch", 0, "Pitch adjustment in semitones, Google only (-20.0 to 20.0)")
 }
 
 func Execute() error {
@@ -152,6 +160,49 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid model %q: must be haiku, sonnet, gemini-flash, or gemini-pro", flagModel)
 	}
 
+	// Validate TTS model if specified
+	if flagTTSModel != "" {
+		if err := tts.ValidateModel(flagTTS, flagTTSModel); err != nil {
+			return err
+		}
+	}
+
+	// Validate TTS speed per provider
+	if flagTTSSpeed != 0 {
+		switch flagTTS {
+		case "elevenlabs":
+			if flagTTSSpeed < 0.7 || flagTTSSpeed > 1.2 {
+				return fmt.Errorf("--tts-speed for ElevenLabs must be between 0.7 and 1.2 (got %.2f)", flagTTSSpeed)
+			}
+		case "google":
+			if flagTTSSpeed < 0.25 || flagTTSSpeed > 2.0 {
+				return fmt.Errorf("--tts-speed for Google must be between 0.25 and 2.0 (got %.2f)", flagTTSSpeed)
+			}
+		case "gemini":
+			return fmt.Errorf("--tts-speed is not supported by Gemini TTS")
+		}
+	}
+
+	// Validate TTS stability (ElevenLabs only)
+	if flagTTSStability != 0 {
+		if flagTTS != "elevenlabs" {
+			return fmt.Errorf("--tts-stability is only supported by ElevenLabs")
+		}
+		if flagTTSStability < 0 || flagTTSStability > 1.0 {
+			return fmt.Errorf("--tts-stability must be between 0.0 and 1.0 (got %.2f)", flagTTSStability)
+		}
+	}
+
+	// Validate TTS pitch (Google only)
+	if flagTTSPitch != 0 {
+		if flagTTS != "google" {
+			return fmt.Errorf("--tts-pitch is only supported by Google Cloud TTS")
+		}
+		if flagTTSPitch < -20.0 || flagTTSPitch > 20.0 {
+			return fmt.Errorf("--tts-pitch must be between -20.0 and 20.0 (got %.2f)", flagTTSPitch)
+		}
+	}
+
 	// Parse provider:voiceID syntax for each voice flag
 	v1Provider, v1ID := tts.ParseVoiceSpec(flagVoice1)
 	v2Provider, v2ID := tts.ParseVoiceSpec(flagVoice2)
@@ -207,6 +258,10 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		DefaultTTS:     flagTTS,
 		Model:          flagModel,
 		LogFile:        pipeline.LogFilePath(flagOutput),
+		TTSModel:       flagTTSModel,
+		TTSSpeed:       flagTTSSpeed,
+		TTSStability:   flagTTSStability,
+		TTSPitch:       flagTTSPitch,
 	}
 
 	return pipeline.Run(cmd.Context(), opts)

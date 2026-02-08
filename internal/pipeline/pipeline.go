@@ -42,6 +42,10 @@ type Options struct {
 	DefaultTTS     string // --tts value, for logging/defaults
 	Model          string
 	LogFile        string
+	TTSModel       string  // --tts-model
+	TTSSpeed       float64 // --tts-speed
+	TTSStability   float64 // --tts-stability (ElevenLabs)
+	TTSPitch       float64 // --tts-pitch (Google)
 }
 
 type PipelineError struct {
@@ -213,6 +217,16 @@ func Run(ctx context.Context, opts Options) error {
 	// Build provider set for lazy provider creation
 	ps := tts.NewProviderSet()
 	defer ps.Close()
+
+	// Apply TTS model/settings config to the default provider
+	if opts.TTSModel != "" || opts.TTSSpeed != 0 || opts.TTSStability != 0 || opts.TTSPitch != 0 {
+		ps.SetConfig(opts.DefaultTTS, tts.ProviderConfig{
+			Model:     opts.TTSModel,
+			Speed:     opts.TTSSpeed,
+			Stability: opts.TTSStability,
+			Pitch:     opts.TTSPitch,
+		})
+	}
 
 	// Build voice map with provider info, using defaults where not overridden
 	voices := tts.VoiceMap{}

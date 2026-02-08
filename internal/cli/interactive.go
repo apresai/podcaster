@@ -116,13 +116,14 @@ const (
 	idxOutput   = 1
 	idxModel    = 2
 	idxTTS      = 3
-	idxTone     = 4
-	idxDuration = 5
-	idxStyle    = 6
-	idxVoices   = 7
-	idxVoice1   = 8
-	idxVoice2   = 9
-	// idxVoice3 = 10 when voiceCount >= 3
+	idxTTSModel = 4
+	idxTone     = 5
+	idxDuration = 6
+	idxStyle    = 7
+	idxVoices   = 8
+	idxVoice1   = 9
+	idxVoice2   = 10
+	// idxVoice3 = 11 when voiceCount >= 3
 	// idxGenerate = last item
 )
 
@@ -166,6 +167,40 @@ func buildAllVoiceOptions() (opts []menuOption, defaultV1, defaultV2, defaultV3 
 	return
 }
 
+// ttsModelOptions returns the TTS model choices for a given provider.
+func ttsModelOptions(provider string) []menuOption {
+	switch provider {
+	case "elevenlabs":
+		return []menuOption{
+			{label: "v3 (highest quality, expressive)", value: "eleven_v3"},
+			{label: "Multilingual v2 (consistent, numbers)", value: "eleven_multilingual_v2"},
+			{label: "Turbo v2.5 (fast, balanced)", value: "eleven_turbo_v2_5"},
+			{label: "Flash v2.5 (fastest, 75ms)", value: "eleven_flash_v2_5"},
+		}
+	case "gemini":
+		return []menuOption{
+			{label: "Pro TTS (best quality, nuanced)", value: "gemini-2.5-pro-tts"},
+			{label: "Flash TTS (fast, good quality)", value: "gemini-2.5-flash-tts"},
+		}
+	default:
+		return []menuOption{
+			{label: "Chirp 3 HD (fixed)", value: ""},
+		}
+	}
+}
+
+// defaultTTSModel returns the default TTS model for a provider.
+func defaultTTSModel(provider string) string {
+	switch provider {
+	case "elevenlabs":
+		return "eleven_v3"
+	case "gemini":
+		return "gemini-2.5-pro-tts"
+	default:
+		return ""
+	}
+}
+
 func buildMenuItems(voiceCount int) []menuItem {
 	voiceOpts, defaultV1, defaultV2, defaultV3 := buildAllVoiceOptions()
 
@@ -173,6 +208,11 @@ func buildMenuItems(voiceCount int) []menuItem {
 	outputVal := flagOutput
 	if outputVal == "" {
 		outputVal = defaultOutputFilename()
+	}
+
+	ttsModelVal := flagTTSModel
+	if ttsModelVal == "" {
+		ttsModelVal = defaultTTSModel(flagTTS)
 	}
 
 	items := []menuItem{
@@ -203,6 +243,11 @@ func buildMenuItems(voiceCount int) []menuItem {
 				{label: "ElevenLabs (premium voices)", value: "elevenlabs"},
 				{label: "Google Cloud TTS (Chirp 3 HD)", value: "google"},
 			},
+		},
+		{
+			label:   "TTS Model",
+			value:   ttsModelVal,
+			options: ttsModelOptions(flagTTS),
 		},
 		{
 			label: "Tone",
@@ -421,10 +466,17 @@ func (m tuiModel) updateEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		item.editing = false
 		m.state = stateMenu
 
-		// If default provider changed, update voice defaults (voices from all
-		// providers are always shown, so we just update the default selections)
+		// If default provider changed, update TTS model options and voice defaults
 		if idx == idxTTS {
 			flagTTS = item.value // update so buildAllVoiceOptions picks new defaults
+
+			// Rebuild TTS Model options for new provider
+			newModelOpts := ttsModelOptions(item.value)
+			m.items[idxTTSModel].options = newModelOpts
+			m.items[idxTTSModel].value = defaultTTSModel(item.value)
+			m.items[idxTTSModel].cursor = 0
+
+			// Update voice defaults
 			_, dv1, dv2, dv3 := buildAllVoiceOptions()
 			m.items[idxVoice1].value = dv1
 			m.items[idxVoice1].cursor = 0
@@ -547,6 +599,7 @@ func (m *tuiModel) rebuildForVoiceCount() {
 	savedOutput := m.items[idxOutput].value
 	savedModel := m.items[idxModel].value
 	savedTTS := m.items[idxTTS].value
+	savedTTSModel := m.items[idxTTSModel].value
 	savedTone := m.items[idxTone].value
 	savedDuration := m.items[idxDuration].value
 	savedStyle := m.items[idxStyle].value
@@ -559,6 +612,7 @@ func (m *tuiModel) rebuildForVoiceCount() {
 	m.items[idxOutput].value = savedOutput
 	m.items[idxModel].value = savedModel
 	m.items[idxTTS].value = savedTTS
+	m.items[idxTTSModel].value = savedTTSModel
 	m.items[idxTone].value = savedTone
 	m.items[idxDuration].value = savedDuration
 	m.items[idxStyle].value = savedStyle
@@ -715,6 +769,7 @@ func runInteractiveSetup() error {
 	flagOutput = final.items[idxOutput].value
 	flagModel = final.items[idxModel].value
 	flagTTS = final.items[idxTTS].value
+	flagTTSModel = final.items[idxTTSModel].value
 	flagTone = final.items[idxTone].value
 	flagDuration = final.items[idxDuration].value
 	if final.items[idxStyle].value != "" {
