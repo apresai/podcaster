@@ -4,9 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+var tracer = otel.Tracer("podcaster-mcp")
 
 // ToolDefs returns the MCP tool definitions.
 func ToolDefs() []mcp.Tool {
@@ -113,15 +119,19 @@ func ToolDefs() []mcp.Tool {
 type Handlers struct {
 	tasks *TaskManager
 	store *Store
+	log   *slog.Logger
 }
 
 // NewHandlers creates tool handlers.
-func NewHandlers(tasks *TaskManager, store *Store) *Handlers {
-	return &Handlers{tasks: tasks, store: store}
+func NewHandlers(tasks *TaskManager, store *Store, logger *slog.Logger) *Handlers {
+	return &Handlers{tasks: tasks, store: store, log: logger}
 }
 
 // HandleGeneratePodcast starts a podcast generation task.
 func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, span := tracer.Start(ctx, "tool.generate_podcast")
+	defer span.End()
+
 	genReq := GenerateRequest{
 		InputURL:         mcp.ParseString(req, "input_url", ""),
 		InputText:        mcp.ParseString(req, "input_text", ""),
@@ -138,14 +148,29 @@ func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRe
 		Owner:            "mcp-server",
 	}
 
+	span.SetAttributes(
+		attribute.String("input_url", genReq.InputURL),
+		attribute.String("model", genReq.Model),
+		attribute.String("tts", genReq.TTS),
+		attribute.String("duration", genReq.Duration),
+		attribute.String("format", genReq.Format),
+		attribute.Int("voices", genReq.Voices),
+	)
+
 	if genReq.InputURL == "" && genReq.InputText == "" {
+		span.SetStatus(codes.Error, "missing input")
 		return mcp.NewToolResultError("either input_url or input_text is required"), nil
 	}
 
 	id, err := h.tasks.StartTask(ctx, genReq)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "start task failed")
 		return mcp.NewToolResultError(fmt.Sprintf("failed to start task: %v", err)), nil
 	}
+
+	span.SetAttributes(attribute.String("podcast_id", id))
+	h.log.InfoContext(ctx, "Podcast generation started", "podcast_id", id, "model", genReq.Model, "tts", genReq.TTS)
 
 	result := map[string]any{
 		"podcast_id": id,
@@ -157,16 +182,25 @@ func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRe
 
 // HandleGetPodcast returns podcast details.
 func (h *Handlers) HandleGetPodcast(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, span := tracer.Start(ctx, "tool.get_podcast")
+	defer span.End()
+
 	id := mcp.ParseString(req, "podcast_id", "")
 	if id == "" {
+		span.SetStatus(codes.Error, "missing podcast_id")
 		return mcp.NewToolResultError("podcast_id is required"), nil
 	}
 
+	span.SetAttributes(attribute.String("podcast_id", id))
+
 	item, err := h.store.GetPodcast(ctx, id)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get podcast failed")
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get podcast: %v", err)), nil
 	}
 	if item == nil {
+		span.SetStatus(codes.Error, "not found")
 		return mcp.NewToolResultError(fmt.Sprintf("podcast %s not found", id)), nil
 	}
 
@@ -214,13 +248,25 @@ func (h *Handlers) HandleGetPodcast(ctx context.Context, req mcp.CallToolRequest
 
 // HandleListPodcasts returns a paginated list of podcasts.
 func (h *Handlers) HandleListPodcasts(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, span := tracer.Start(ctx, "tool.list_podcasts")
+	defer span.End()
+
 	limit := parseIntParam(req, "limit", 20)
 	cursor := mcp.ParseString(req, "cursor", "")
 
+	span.SetAttributes(
+		attribute.Int("limit", limit),
+		attribute.String("cursor", cursor),
+	)
+
 	items, nextCursor, err := h.store.ListPodcasts(ctx, limit, cursor)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "list podcasts failed")
 		return mcp.NewToolResultError(fmt.Sprintf("failed to list podcasts: %v", err)), nil
 	}
+
+	span.SetAttributes(attribute.Int("result_count", len(items)))
 
 	podcasts := make([]map[string]any, 0, len(items))
 	for _, item := range items {

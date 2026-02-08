@@ -83,7 +83,7 @@ deploy-agentcore:
 		--role-arn $(AGENTCORE_ROLE_ARN) \
 		--network-configuration networkMode=PUBLIC \
 		--protocol-configuration serverProtocol=MCP \
-		--environment-variables 'DYNAMODB_TABLE=$(DYNAMODB_TABLE),S3_BUCKET=$(S3_BUCKET),CDN_BASE_URL=$(CDN_BASE_URL),SECRET_PREFIX=/podcaster/mcp/' \
+		--environment-variables 'DYNAMODB_TABLE=$(DYNAMODB_TABLE),S3_BUCKET=$(S3_BUCKET),CDN_BASE_URL=$(CDN_BASE_URL),SECRET_PREFIX=/podcaster/mcp/,OTEL_SERVICE_NAME=podcaster-mcp,OTEL_TRACES_EXPORTER=otlp,OTEL_EXPORTER_OTLP_PROTOCOL=grpc' \
 		--region $(AWS_REGION)
 
 update-agentcore:

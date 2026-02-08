@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/apresai/podcaster/internal/observability"
 	"github.com/apresai/podcaster/internal/pipeline"
 	"github.com/apresai/podcaster/internal/progress"
 	"github.com/apresai/podcaster/internal/script"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // GenerateRequest holds parameters for a podcast generation task.
@@ -37,6 +41,7 @@ type GenerateRequest struct {
 type TaskManager struct {
 	store   *Store
 	storage *Storage
+	log     *slog.Logger
 
 	mu       sync.Mutex
 	cancels  map[string]context.CancelFunc
@@ -45,13 +50,14 @@ type TaskManager struct {
 }
 
 // NewTaskManager creates a task manager.
-func NewTaskManager(store *Store, storage *Storage, maxTasks int) *TaskManager {
+func NewTaskManager(store *Store, storage *Storage, maxTasks int, logger *slog.Logger) *TaskManager {
 	if maxTasks <= 0 {
 		maxTasks = 5
 	}
 	return &TaskManager{
 		store:    store,
 		storage:  storage,
+		log:      logger,
 		cancels:  make(map[string]context.CancelFunc),
 		maxTasks: maxTasks,
 	}
@@ -71,7 +77,11 @@ func (tm *TaskManager) StartTask(ctx context.Context, req GenerateRequest) (stri
 		return "", fmt.Errorf("max concurrent tasks reached (%d)", tm.maxTasks)
 	}
 	tm.running++
-	taskCtx, cancel := context.WithCancel(context.Background())
+
+	// Detach trace context so the goroutine's spans are linked to this HTTP request
+	// but don't inherit its cancellation.
+	taskCtx := observability.DetachTraceContext(ctx)
+	taskCtx, cancel := context.WithCancel(taskCtx)
 	tm.cancels[id] = cancel
 	tm.mu.Unlock()
 
@@ -99,12 +109,19 @@ func (tm *TaskManager) CancelTask(id string) {
 }
 
 func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateRequest) {
+	ctx, span := tracer.Start(ctx, "pipeline.run",
+		trace.WithAttributes(attribute.String("podcast_id", id)),
+	)
+	defer span.End()
+
 	defer func() {
 		tm.mu.Lock()
 		delete(tm.cancels, id)
 		tm.running--
 		tm.mu.Unlock()
 	}()
+
+	log := tm.log.With("podcast_id", id)
 
 	// Throttle DynamoDB writes: max 1 per 2 seconds except on stage transitions.
 	var lastWrite time.Time
@@ -119,9 +136,18 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 			return
 		}
 
+		if stageChanged {
+			span.AddEvent("stage_transition",
+				trace.WithAttributes(
+					attribute.String("stage", evt.Message),
+					attribute.Float64("percent", evt.Percent),
+				),
+			)
+		}
+
 		status := mapStage(evt.Stage)
 		if err := tm.store.UpdateProgress(ctx, id, status, evt.Percent, evt.Message); err != nil {
-			log.Printf("[task %s] update progress: %v", id, err)
+			log.WarnContext(ctx, "Update progress failed", "error", err)
 		}
 		lastWrite = now
 		lastStage = evt.Stage
@@ -130,6 +156,8 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 	// Set up a temp working directory for this task
 	workDir, err := os.MkdirTemp("", "podcaster-mcp-*")
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "create work dir failed")
 		tm.store.FailJob(ctx, id, fmt.Sprintf("create work dir: %v", err))
 		return
 	}
@@ -141,12 +169,15 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		// Write input text to a temp file
 		inputPath := workDir + "/input.txt"
 		if err := os.WriteFile(inputPath, []byte(req.InputText), 0644); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "write input failed")
 			tm.store.FailJob(ctx, id, fmt.Sprintf("write input text: %v", err))
 			return
 		}
 		input = inputPath
 	}
 	if input == "" {
+		span.SetStatus(codes.Error, "no input")
 		tm.store.FailJob(ctx, id, "no input provided")
 		return
 	}
@@ -195,7 +226,11 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 	}
 
 	// Run the pipeline
+	log.InfoContext(ctx, "Pipeline starting", "model", model, "tts", ttsProvider, "duration", duration)
 	if err := pipeline.Run(ctx, opts); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "pipeline failed")
+		log.ErrorContext(ctx, "Pipeline failed", "error", err)
 		tm.store.FailJob(ctx, id, err.Error())
 		return
 	}
@@ -233,14 +268,25 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 	tm.store.UpdateProgress(ctx, id, JobStatusUploading, 0.95, "Uploading to S3...")
 	audioKey, audioURL, err := tm.storage.Upload(ctx, id, outputPath)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "upload failed")
+		log.ErrorContext(ctx, "S3 upload failed", "error", err)
 		tm.store.FailJob(ctx, id, fmt.Sprintf("upload to S3: %v", err))
 		return
 	}
 
 	// Mark complete
 	if err := tm.store.CompleteJob(ctx, id, title, summary, audioKey, audioURL, audioDuration, scriptJSON, fileSizeMB); err != nil {
-		log.Printf("[task %s] complete job: %v", id, err)
+		log.ErrorContext(ctx, "Complete job failed", "error", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("title", title),
+		attribute.String("audio_url", audioURL),
+		attribute.Float64("file_size_mb", fileSizeMB),
+	)
+	span.SetStatus(codes.Ok, "complete")
+	log.InfoContext(ctx, "Pipeline complete", "title", title, "audio_url", audioURL)
 }
 
 // mapStage maps a pipeline progress stage to a job status.

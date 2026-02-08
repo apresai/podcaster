@@ -3,7 +3,8 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
+	"net/http"
 	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Config holds server configuration.
@@ -44,10 +47,11 @@ type Server struct {
 	cfg      Config
 	mcp      *server.MCPServer
 	handlers *Handlers
+	log      *slog.Logger
 }
 
 // New creates and configures the MCP server.
-func New(ctx context.Context, cfg Config) (*Server, error) {
+func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) {
 	// Load AWS config
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion(cfg.AWSRegion),
@@ -56,11 +60,14 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
 
+	// Auto-instrument AWS SDK calls (DynamoDB, S3, Secrets Manager)
+	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
+
 	// Fetch secrets if running in AWS
 	if cfg.SecretPrefix != "" {
-		if err := loadSecrets(ctx, awsCfg, cfg.SecretPrefix); err != nil {
-			log.Printf("Warning: failed to load secrets from Secrets Manager: %v", err)
-			log.Printf("Falling back to environment variables for API keys")
+		if err := loadSecrets(ctx, awsCfg, cfg.SecretPrefix, logger); err != nil {
+			logger.Warn("Failed to load secrets from Secrets Manager, falling back to env vars",
+				"error", err)
 		}
 	}
 
@@ -75,8 +82,8 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	// Create store, storage, task manager
 	store := NewStore(ddbClient, cfg.TableName)
 	storage := NewStorage(s3Client, cfg.S3Bucket, cfg.CDNBaseURL)
-	taskMgr := NewTaskManager(store, storage, cfg.MaxTasks)
-	handlers := NewHandlers(taskMgr, store)
+	taskMgr := NewTaskManager(store, storage, cfg.MaxTasks, logger)
+	handlers := NewHandlers(taskMgr, store, logger)
 
 	// Create MCP server
 	mcpServer := server.NewMCPServer(
@@ -95,19 +102,24 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		cfg:      cfg,
 		mcp:      mcpServer,
 		handlers: handlers,
+		log:      logger,
 	}, nil
 }
 
 // Start runs the HTTP MCP server.
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.cfg.Port)
-	log.Printf("Starting MCP server on %s", addr)
-	httpServer := server.NewStreamableHTTPServer(s.mcp)
-	return httpServer.Start(addr)
+	s.log.Info("Starting MCP server", "addr", addr)
+
+	streamableServer := server.NewStreamableHTTPServer(s.mcp)
+
+	// Wrap the MCP handler with otelhttp for automatic HTTP span creation
+	handler := otelhttp.NewHandler(streamableServer, "mcp-server")
+	return http.ListenAndServe(addr, handler)
 }
 
 // loadSecrets fetches API keys from Secrets Manager and sets them as env vars.
-func loadSecrets(ctx context.Context, cfg aws.Config, prefix string) error {
+func loadSecrets(ctx context.Context, cfg aws.Config, prefix string, logger *slog.Logger) error {
 	client := secretsmanager.NewFromConfig(cfg)
 
 	secrets := map[string]string{
@@ -126,12 +138,12 @@ func loadSecrets(ctx context.Context, cfg aws.Config, prefix string) error {
 			SecretId: &secretID,
 		})
 		if err != nil {
-			log.Printf("Secret %s not found: %v", secretID, err)
+			logger.Info("Secret not found", "secret_id", secretID, "error", err)
 			continue
 		}
 		if result.SecretString != nil {
 			os.Setenv(envVar, *result.SecretString)
-			log.Printf("Loaded secret %s", secretID)
+			logger.Info("Loaded secret", "secret_id", secretID)
 		}
 	}
 

@@ -138,6 +138,15 @@ export class PodcasterMcpStack extends cdk.Stack {
       resources: ['*'],
     }));
 
+    // X-Ray tracing (for OTEL spans via OTLP exporter)
+    agentCoreRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'xray:PutTraceSegments',
+        'xray:PutTelemetryRecords',
+      ],
+      resources: ['*'],
+    }));
+
     // ECR pull
     ecrRepo.grantPull(agentCoreRole);
 
