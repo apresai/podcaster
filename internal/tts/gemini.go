@@ -19,7 +19,7 @@ const (
 	geminiDefaultVoice2 = "Leda"
 	geminiDefaultVoice3 = "Fenrir"
 
-	geminiDefaultTTSModel = "gemini-2.5-pro-tts"
+	geminiDefaultTTSModel = "gemini-2.5-pro-preview-tts"
 	geminiEndpointBase    = "https://generativelanguage.googleapis.com/v1beta/models/"
 )
 

@@ -255,8 +255,8 @@ func ttsModelOptions(provider string) []menuOption {
 		}
 	case "gemini":
 		return []menuOption{
-			{label: "Pro TTS (best quality, nuanced) (default)", value: "gemini-2.5-pro-tts"},
-			{label: "Flash TTS (fast, good quality)", value: "gemini-2.5-flash-tts"},
+			{label: "Pro TTS (best quality, nuanced) (default)", value: "gemini-2.5-pro-preview-tts"},
+			{label: "Flash TTS (fast, good quality)", value: "gemini-2.5-flash-preview-tts"},
 		}
 	default:
 		return []menuOption{
@@ -274,7 +274,7 @@ func defaultTTSModel(provider string) string {
 	case "elevenlabs":
 		return "eleven_v3"
 	case "gemini":
-		return "gemini-2.5-pro-tts"
+		return "gemini-2.5-pro-preview-tts"
 	default:
 		return ""
 	}

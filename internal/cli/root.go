@@ -90,7 +90,7 @@ func init() {
 	generateCmd.Flags().BoolVarP(&flagTUI, "tui", "t", false, "Interactive setup wizard for generation options")
 	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "TTS provider: elevenlabs, google, or gemini (default gemini)")
 	generateCmd.Flags().StringVarP(&flagModel, "model", "m", "haiku", "Script generation model: haiku, sonnet, gemini-flash, gemini-pro")
-	generateCmd.Flags().StringVar(&flagTTSModel, "tts-model", "", "TTS model ID (e.g., eleven_v3, gemini-2.5-flash-tts)")
+	generateCmd.Flags().StringVar(&flagTTSModel, "tts-model", "", "TTS model ID (e.g., eleven_v3, gemini-2.5-flash-preview-tts)")
 	generateCmd.Flags().Float64Var(&flagTTSSpeed, "tts-speed", 0, "Speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0)")
 	generateCmd.Flags().Float64Var(&flagTTSStability, "tts-stability", 0, "Voice stability, ElevenLabs only (0.0-1.0)")
 	generateCmd.Flags().Float64Var(&flagTTSPitch, "tts-pitch", 0, "Pitch adjustment in semitones, Google only (-20.0 to 20.0)")

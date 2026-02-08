@@ -142,8 +142,8 @@ var validModels = map[string]map[string]bool{
 		"eleven_flash_v2_5":     true,
 	},
 	"gemini": {
-		"gemini-2.5-pro-tts":   true,
-		"gemini-2.5-flash-tts": true,
+		"gemini-2.5-pro-preview-tts":   true,
+		"gemini-2.5-flash-preview-tts": true,
 	},
 }
 
