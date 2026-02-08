@@ -45,7 +45,7 @@ func NewClaudeGenerator(model string) *ClaudeGenerator {
 func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts GenerateOptions) (*Script, error) {
 	client := anthropic.NewClient()
 
-	personas := buildPersonaSlice(opts.Voices)
+	personas := buildPersonaSlice(opts.Voices, opts.SpeakerNames)
 	sysPrompt := buildSystemPrompt(personas)
 	userPrompt := buildUserPrompt(content, opts)
 
@@ -102,7 +102,7 @@ func (g *ClaudeGenerator) Generate(ctx context.Context, content string, opts Gen
 		}
 
 		// Parse the JSON script
-		script, err := parseScript(text)
+		script, err := parseScript(text, personas)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to parse script JSON (attempt %d/%d): %w", attempt, maxRetries, err)
 			if attempt < maxRetries {
@@ -132,7 +132,7 @@ func extractText(msg *anthropic.Message) string {
 	return strings.Join(parts, "")
 }
 
-func parseScript(text string) (*Script, error) {
+func parseScript(text string, personas []Persona) (*Script, error) {
 	// Strip scratchpad tags and content
 	text = stripScratchpad(text)
 
@@ -156,10 +156,15 @@ func parseScript(text string) (*Script, error) {
 	if len(s.Segments) == 0 {
 		return nil, fmt.Errorf("script has no segments")
 	}
-	validSpeakers := map[string]bool{"Alex": true, "Sam": true, "Jordan": true}
+	validSpeakers := make(map[string]bool, len(personas))
+	var names []string
+	for _, p := range personas {
+		validSpeakers[p.Name] = true
+		names = append(names, p.Name)
+	}
 	for i, seg := range s.Segments {
 		if !validSpeakers[seg.Speaker] {
-			return nil, fmt.Errorf("segment %d has invalid speaker %q (must be Alex, Sam, or Jordan)", i, seg.Speaker)
+			return nil, fmt.Errorf("segment %d has invalid speaker %q (must be one of %s)", i, seg.Speaker, strings.Join(names, ", "))
 		}
 		if strings.TrimSpace(seg.Text) == "" {
 			return nil, fmt.Errorf("segment %d has empty text", i)

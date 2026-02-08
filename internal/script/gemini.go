@@ -70,7 +70,7 @@ type geminiTextRespPart struct {
 }
 
 func (g *GeminiGenerator) Generate(ctx context.Context, content string, opts GenerateOptions) (*Script, error) {
-	personas := buildPersonaSlice(opts.Voices)
+	personas := buildPersonaSlice(opts.Voices, opts.SpeakerNames)
 	sysPrompt := buildSystemPrompt(personas)
 	userPrompt := buildUserPrompt(content, opts)
 
@@ -135,7 +135,7 @@ func (g *GeminiGenerator) Generate(ctx context.Context, content string, opts Gen
 			continue
 		}
 
-		script, err := parseScript(text)
+		script, err := parseScript(text, personas)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to parse script JSON (attempt %d/%d): %w", attempt, maxRetries, err)
 			if attempt < maxRetries {

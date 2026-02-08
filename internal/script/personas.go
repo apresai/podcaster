@@ -2,7 +2,7 @@ package script
 
 // Persona defines a podcast host's identity, speaking style, and behavioral rules.
 type Persona struct {
-	Name          string // Speaker label in segments — must match "Alex", "Sam", or "Jordan"
+	Name          string // Speaker label in segments — defaults to "Alex", "Sam", or "Jordan"; overridden by voice names
 	FullName      string // Full character name for the system prompt
 	Background    string // Career history and credentials
 	Role          string // Role in the conversation dynamic

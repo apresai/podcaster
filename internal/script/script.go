@@ -19,13 +19,14 @@ type Segment struct {
 }
 
 type GenerateOptions struct {
-	Topic    string
-	Tone     string
-	Duration string
-	Styles   []string
-	Model    string
-	Voices   int    // 1-3, defaults to 2 if 0
-	Format   string // show format: conversation, interview, debate, etc.
+	Topic        string
+	Tone         string
+	Duration     string
+	Styles       []string
+	Model        string
+	Voices       int      // 1-3, defaults to 2 if 0
+	Format       string   // show format: conversation, interview, debate, etc.
+	SpeakerNames []string // override persona names with voice names (len must match Voices)
 }
 
 type Generator interface {
@@ -70,15 +71,23 @@ func ModelDisplayName(model string) string {
 }
 
 // buildPersonaSlice returns the personas for the given voice count.
-func buildPersonaSlice(voices int) []Persona {
+// If names is provided and has the right length, persona names are overridden.
+func buildPersonaSlice(voices int, names []string) []Persona {
+	var personas []Persona
 	switch voices {
 	case 1:
-		return []Persona{DefaultAlexPersona}
+		personas = []Persona{DefaultAlexPersona}
 	case 3:
-		return []Persona{DefaultAlexPersona, DefaultSamPersona, DefaultJordanPersona}
+		personas = []Persona{DefaultAlexPersona, DefaultSamPersona, DefaultJordanPersona}
 	default:
-		return []Persona{DefaultAlexPersona, DefaultSamPersona}
+		personas = []Persona{DefaultAlexPersona, DefaultSamPersona}
 	}
+	if len(names) == len(personas) {
+		for i, n := range names {
+			personas[i].Name = n
+		}
+	}
+	return personas
 }
 
 func LoadScript(path string) (*Script, error) {

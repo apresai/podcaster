@@ -28,9 +28,10 @@ type Voice struct {
 
 // VoiceMap maps podcast hosts to voices.
 type VoiceMap struct {
-	Host1 Voice // Voice 1 (maps to Alex)
-	Host2 Voice // Voice 2 (maps to Sam)
-	Host3 Voice // Voice 3 (maps to Jordan)
+	Host1        Voice     // Voice 1 (default: Alex)
+	Host2        Voice     // Voice 2 (default: Sam)
+	Host3        Voice     // Voice 3 (default: Jordan)
+	SpeakerNames [3]string // Dynamic speaker names from voice names (for script→voice mapping)
 }
 
 // AudioResult is the output of a synthesis call.

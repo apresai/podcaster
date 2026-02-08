@@ -52,6 +52,82 @@ type Options struct {
 	OnProgress     progress.Callback
 }
 
+// CLICommand returns a reproducible CLI command for the current options.
+func (o Options) CLICommand() string {
+	var parts []string
+	parts = append(parts, "podcaster generate")
+	if o.Input != "" {
+		parts = append(parts, fmt.Sprintf("-i %q", o.Input))
+	}
+	if o.FromScript != "" {
+		parts = append(parts, fmt.Sprintf("--from-script %q", o.FromScript))
+	}
+	if o.Output != "" {
+		parts = append(parts, fmt.Sprintf("-o %q", o.Output))
+	}
+	if o.Model != "" && o.Model != "haiku" {
+		parts = append(parts, "--model", o.Model)
+	}
+	if o.DefaultTTS != "" && o.DefaultTTS != "gemini" {
+		parts = append(parts, "--tts", o.DefaultTTS)
+	}
+	if o.TTSModel != "" {
+		parts = append(parts, "--tts-model", o.TTSModel)
+	}
+	if o.Format != "" && o.Format != "conversation" {
+		parts = append(parts, "--format", o.Format)
+	}
+	if o.Tone != "" && o.Tone != "casual" {
+		parts = append(parts, "--tone", o.Tone)
+	}
+	if o.Duration != "" && o.Duration != "standard" {
+		parts = append(parts, "--duration", o.Duration)
+	}
+	if len(o.Styles) > 0 {
+		parts = append(parts, "--style", strings.Join(o.Styles, ","))
+	}
+	if o.Topic != "" {
+		parts = append(parts, fmt.Sprintf("--topic %q", o.Topic))
+	}
+	if o.Voices != 0 && o.Voices != 2 {
+		parts = append(parts, fmt.Sprintf("--voices %d", o.Voices))
+	}
+	if o.Voice1 != "" {
+		v := o.Voice1
+		if o.Voice1Provider != "" {
+			v = o.Voice1Provider + ":" + v
+		}
+		parts = append(parts, "--voice1", v)
+	}
+	if o.Voice2 != "" {
+		v := o.Voice2
+		if o.Voice2Provider != "" {
+			v = o.Voice2Provider + ":" + v
+		}
+		parts = append(parts, "--voice2", v)
+	}
+	if o.Voice3 != "" {
+		v := o.Voice3
+		if o.Voice3Provider != "" {
+			v = o.Voice3Provider + ":" + v
+		}
+		parts = append(parts, "--voice3", v)
+	}
+	if o.TTSSpeed != 0 {
+		parts = append(parts, fmt.Sprintf("--tts-speed %.2f", o.TTSSpeed))
+	}
+	if o.TTSStability != 0 {
+		parts = append(parts, fmt.Sprintf("--tts-stability %.2f", o.TTSStability))
+	}
+	if o.TTSPitch != 0 {
+		parts = append(parts, fmt.Sprintf("--tts-pitch %.2f", o.TTSPitch))
+	}
+	if o.ScriptOnly {
+		parts = append(parts, "--script-only")
+	}
+	return strings.Join(parts, " ")
+}
+
 type PipelineError struct {
 	Stage   string
 	Message string
@@ -156,6 +232,66 @@ func Run(ctx context.Context, opts Options) error {
 	if len(opts.Styles) > 0 {
 		logf("Config: styles=%s", strings.Join(opts.Styles, ","))
 	}
+	logf("Equivalent CLI: %s", opts.CLICommand())
+
+	// Resolve voice map early so we can use voice names as speaker labels in scripts
+	ps := tts.NewProviderSet()
+	defer ps.Close()
+
+	if opts.TTSModel != "" || opts.TTSSpeed != 0 || opts.TTSStability != 0 || opts.TTSPitch != 0 {
+		ps.SetConfig(opts.DefaultTTS, tts.ProviderConfig{
+			Model:     opts.TTSModel,
+			Speed:     opts.TTSSpeed,
+			Stability: opts.TTSStability,
+			Pitch:     opts.TTSPitch,
+		})
+	}
+
+	voices := tts.VoiceMap{}
+	if opts.Voice1 != "" {
+		voices.Host1 = tts.Voice{ID: opts.Voice1, Name: opts.Voice1, Provider: opts.Voice1Provider}
+	} else {
+		p, err := ps.Get(opts.Voice1Provider)
+		if err != nil {
+			return &PipelineError{Stage: "tts", Message: "failed to create TTS provider", Err: err}
+		}
+		dv := p.DefaultVoices()
+		voices.Host1 = tts.Voice{ID: dv.Host1.ID, Name: dv.Host1.Name, Provider: opts.Voice1Provider}
+	}
+	if opts.Voice2 != "" {
+		voices.Host2 = tts.Voice{ID: opts.Voice2, Name: opts.Voice2, Provider: opts.Voice2Provider}
+	} else {
+		p, err := ps.Get(opts.Voice2Provider)
+		if err != nil {
+			return &PipelineError{Stage: "tts", Message: "failed to create TTS provider", Err: err}
+		}
+		dv := p.DefaultVoices()
+		voices.Host2 = tts.Voice{ID: dv.Host2.ID, Name: dv.Host2.Name, Provider: opts.Voice2Provider}
+	}
+	if opts.Voice3 != "" {
+		voices.Host3 = tts.Voice{ID: opts.Voice3, Name: opts.Voice3, Provider: opts.Voice3Provider}
+	} else {
+		p, err := ps.Get(opts.Voice3Provider)
+		if err != nil {
+			return &PipelineError{Stage: "tts", Message: "failed to create TTS provider", Err: err}
+		}
+		dv := p.DefaultVoices()
+		voices.Host3 = tts.Voice{ID: dv.Host3.ID, Name: dv.Host3.Name, Provider: opts.Voice3Provider}
+	}
+
+	// Set dynamic speaker names from voice names
+	voices.SpeakerNames = [3]string{voices.Host1.Name, voices.Host2.Name, voices.Host3.Name}
+
+	// Build speaker names list for script generation
+	var speakerNames []string
+	switch opts.Voices {
+	case 1:
+		speakerNames = []string{voices.Host1.Name}
+	case 3:
+		speakerNames = []string{voices.Host1.Name, voices.Host2.Name, voices.Host3.Name}
+	default:
+		speakerNames = []string{voices.Host1.Name, voices.Host2.Name}
+	}
 
 	var s *script.Script
 
@@ -207,13 +343,14 @@ func Run(ctx context.Context, opts Options) error {
 			return &PipelineError{Stage: "script", Message: "failed to create script generator", Err: err}
 		}
 		genOpts := script.GenerateOptions{
-			Topic:    opts.Topic,
-			Tone:     opts.Tone,
-			Duration: opts.Duration,
-			Styles:   opts.Styles,
-			Model:    opts.Model,
-			Voices:   opts.Voices,
-			Format:   opts.Format,
+			Topic:        opts.Topic,
+			Tone:         opts.Tone,
+			Duration:     opts.Duration,
+			Styles:       opts.Styles,
+			Model:        opts.Model,
+			Voices:       opts.Voices,
+			Format:       opts.Format,
+			SpeakerNames: speakerNames,
 		}
 		s, err = gen.Generate(ctx, content.Text, genOpts)
 		if err != nil {
@@ -291,57 +428,10 @@ func Run(ctx context.Context, opts Options) error {
 	stageStart := time.Now()
 	emit(progress.StageTTS, fmt.Sprintf("Synthesizing audio (%d segments)...", len(s.Segments)), 0.20)
 
-	// Build provider set for lazy provider creation
-	ps := tts.NewProviderSet()
-	defer ps.Close()
-
-	// Apply TTS model/settings config to the default provider
-	if opts.TTSModel != "" || opts.TTSSpeed != 0 || opts.TTSStability != 0 || opts.TTSPitch != 0 {
-		ps.SetConfig(opts.DefaultTTS, tts.ProviderConfig{
-			Model:     opts.TTSModel,
-			Speed:     opts.TTSSpeed,
-			Stability: opts.TTSStability,
-			Pitch:     opts.TTSPitch,
-		})
-	}
-
-	// Build voice map with provider info, using defaults where not overridden
-	voices := tts.VoiceMap{}
-	if opts.Voice1 != "" {
-		voices.Host1 = tts.Voice{ID: opts.Voice1, Name: opts.Voice1, Provider: opts.Voice1Provider}
-	} else {
-		p, err := ps.Get(opts.Voice1Provider)
-		if err != nil {
-			return &PipelineError{Stage: "tts", Message: "failed to create TTS provider", Err: err}
-		}
-		dv := p.DefaultVoices()
-		voices.Host1 = tts.Voice{ID: dv.Host1.ID, Name: dv.Host1.Name, Provider: opts.Voice1Provider}
-	}
-	if opts.Voice2 != "" {
-		voices.Host2 = tts.Voice{ID: opts.Voice2, Name: opts.Voice2, Provider: opts.Voice2Provider}
-	} else {
-		p, err := ps.Get(opts.Voice2Provider)
-		if err != nil {
-			return &PipelineError{Stage: "tts", Message: "failed to create TTS provider", Err: err}
-		}
-		dv := p.DefaultVoices()
-		voices.Host2 = tts.Voice{ID: dv.Host2.ID, Name: dv.Host2.Name, Provider: opts.Voice2Provider}
-	}
-	if opts.Voice3 != "" {
-		voices.Host3 = tts.Voice{ID: opts.Voice3, Name: opts.Voice3, Provider: opts.Voice3Provider}
-	} else {
-		p, err := ps.Get(opts.Voice3Provider)
-		if err != nil {
-			return &PipelineError{Stage: "tts", Message: "failed to create TTS provider", Err: err}
-		}
-		dv := p.DefaultVoices()
-		voices.Host3 = tts.Voice{ID: dv.Host3.ID, Name: dv.Host3.Name, Provider: opts.Voice3Provider}
-	}
-
 	// Log voice routing
-	logf("Voice routing: Alex→%s, Sam→%s", voices.Host1.Provider, voices.Host2.Provider)
+	logf("Voice routing: %s→%s, %s→%s", voices.Host1.Name, voices.Host1.Provider, voices.Host2.Name, voices.Host2.Provider)
 	if opts.Voices >= 3 {
-		logf("Voice routing: Jordan→%s", voices.Host3.Provider)
+		logf("Voice routing: %s→%s", voices.Host3.Name, voices.Host3.Provider)
 	}
 
 	// Determine if all voices use the same provider
@@ -361,10 +451,10 @@ func Run(ctx context.Context, opts Options) error {
 	} else {
 		logf("Stage 3/4: Synthesizing audio via mixed providers (per-segment)")
 	}
-	logf("  Voice 1 (Alex): %s (%s) [%s]", voices.Host1.Name, voices.Host1.ID, voices.Host1.Provider)
-	logf("  Voice 2 (Sam): %s (%s) [%s]", voices.Host2.Name, voices.Host2.ID, voices.Host2.Provider)
+	logf("  Voice 1 (%s): %s [%s]", voices.Host1.Name, voices.Host1.ID, voices.Host1.Provider)
+	logf("  Voice 2 (%s): %s [%s]", voices.Host2.Name, voices.Host2.ID, voices.Host2.Provider)
 	if opts.Voices >= 3 {
-		logf("  Voice 3 (Jordan): %s (%s) [%s]", voices.Host3.Name, voices.Host3.ID, voices.Host3.Provider)
+		logf("  Voice 3 (%s): %s [%s]", voices.Host3.Name, voices.Host3.ID, voices.Host3.Provider)
 	}
 
 	if singleProvider {
