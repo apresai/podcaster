@@ -181,6 +181,11 @@ make update-agentcore                    # Update container image (subsequent de
 make create-secrets                      # Store API keys in Secrets Manager
 ```
 
+## Testing Policy
+
+- **Always test AWS features on AWS** — when the feature involves AgentCore, MCP server, or any AWS-deployed service, test against the deployed AgentCore endpoint (not locally) unless explicitly told to test locally.
+- Local testing (`go run ./cmd/mcp-server`) is only for quick iteration on code changes before deploying.
+
 ## Development Notes
 
 - Default script model: Haiku 4.5 (`--model haiku`)

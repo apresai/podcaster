@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,8 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/mark3labs/mcp-go/server"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Config holds server configuration.
@@ -59,9 +56,6 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
-
-	// Auto-instrument AWS SDK calls (DynamoDB, S3, Secrets Manager)
-	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
 
 	// Fetch secrets if running in AWS
 	if cfg.SecretPrefix != "" {
@@ -111,11 +105,10 @@ func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.cfg.Port)
 	s.log.Info("Starting MCP server", "addr", addr)
 
-	streamableServer := server.NewStreamableHTTPServer(s.mcp)
-
-	// Wrap the MCP handler with otelhttp for automatic HTTP span creation
-	handler := otelhttp.NewHandler(streamableServer, "mcp-server")
-	return http.ListenAndServe(addr, handler)
+	httpServer := server.NewStreamableHTTPServer(s.mcp,
+		server.WithStateLess(true), // AgentCore manages session IDs
+	)
+	return httpServer.Start(addr)
 }
 
 // loadSecrets fetches API keys from Secrets Manager and sets them as env vars.

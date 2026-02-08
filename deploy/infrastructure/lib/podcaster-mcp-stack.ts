@@ -114,8 +114,17 @@ export class PodcasterMcpStack extends cdk.Stack {
       ),
     });
 
-    // DynamoDB read/write
+    // DynamoDB read/write (including GSI indexes)
     table.grantReadWriteData(agentCoreRole);
+    agentCoreRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'dynamodb:Query',
+        'dynamodb:Scan',
+      ],
+      resources: [
+        table.tableArn + '/index/*',
+      ],
+    }));
 
     // S3 read/write to podcast bucket
     podcastBucket.grantReadWrite(agentCoreRole);
