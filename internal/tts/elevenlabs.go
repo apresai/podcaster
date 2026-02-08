@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	elevenLabsDefaultVoice1 = "xuqUPASjAdyZvCNoMTEj"  // Chad
+	elevenLabsDefaultVoice1 = "4YYIPFl9wE5c4L2eu2Gb"  // Burt Reynolds™
 	elevenLabsDefaultVoice2 = "56bWURjYFHyYyVf490Dp"  // Emma
-	elevenLabsDefaultVoice3 = "TxGEqnHWrfWFTfGW9XjX"  // Josh
+	elevenLabsDefaultVoice3 = "UgBBYS2sOqTuMpoF3BR0"  // Mark
 
 	elevenLabsBaseURL      = "https://api.elevenlabs.io/v1/text-to-speech"
 	elevenLabsVoicesURL    = "https://api.elevenlabs.io/v1/voices"
@@ -59,9 +59,9 @@ func NewElevenLabsProvider(voice1, voice2, voice3 string) *ElevenLabsProvider {
 	}
 	return &ElevenLabsProvider{
 		voices: VoiceMap{
-			Host1: Voice{ID: v1, Name: "Chad"},
+			Host1: Voice{ID: v1, Name: "Burt Reynolds™"},
 			Host2: Voice{ID: v2, Name: "Emma"},
-			Host3: Voice{ID: v3, Name: "Josh"},
+			Host3: Voice{ID: v3, Name: "Mark"},
 		},
 		apiKey:     os.Getenv("ELEVENLABS_API_KEY"),
 		httpClient: &http.Client{Timeout: 60 * time.Second},
@@ -72,9 +72,9 @@ func (p *ElevenLabsProvider) Name() string { return "elevenlabs" }
 
 func (p *ElevenLabsProvider) DefaultVoices() VoiceMap {
 	return VoiceMap{
-		Host1: Voice{ID: elevenLabsDefaultVoice1, Name: "Chad"},
+		Host1: Voice{ID: elevenLabsDefaultVoice1, Name: "Burt Reynolds™"},
 		Host2: Voice{ID: elevenLabsDefaultVoice2, Name: "Emma"},
-		Host3: Voice{ID: elevenLabsDefaultVoice3, Name: "Josh"},
+		Host3: Voice{ID: elevenLabsDefaultVoice3, Name: "Mark"},
 	}
 }
 
@@ -221,9 +221,10 @@ func elevenLabsAvailableVoices() []VoiceInfo {
 
 	// Fallback to hardcoded list.
 	return []VoiceInfo{
-		{ID: "xuqUPASjAdyZvCNoMTEj", Name: "Chad", Gender: "male", Description: "Cloned voice", DefaultFor: "Voice 1"},
+		{ID: "4YYIPFl9wE5c4L2eu2Gb", Name: "Burt Reynolds™", Gender: "male", Description: "Deep, Smooth and clear", DefaultFor: "Voice 1"},
 		{ID: "56bWURjYFHyYyVf490Dp", Name: "Emma", Gender: "female", Description: "Warm Australian female", DefaultFor: "Voice 2"},
-		{ID: "TxGEqnHWrfWFTfGW9XjX", Name: "Josh", Gender: "male", Description: "Deep, smooth male", DefaultFor: "Voice 3"},
+		{ID: "UgBBYS2sOqTuMpoF3BR0", Name: "Mark", Gender: "male", Description: "Natural Conversations", DefaultFor: "Voice 3"},
+		{ID: "xuqUPASjAdyZvCNoMTEj", Name: "Chad", Gender: "male", Description: "Cloned voice"},
 		{ID: "JBFqnCBsd6RMkjVDRZzb", Name: "George", Gender: "male", Description: "Warm British male"},
 		{ID: "EXAVITQu4vr4xnSDxMaL", Name: "Sarah", Gender: "female", Description: "Soft American female"},
 		{ID: "pNInz6obpgDQGcFmaJgB", Name: "Adam", Gender: "male", Description: "Deep American male"},
