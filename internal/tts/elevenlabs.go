@@ -79,6 +79,7 @@ func (p *ElevenLabsProvider) DefaultVoices() VoiceMap {
 }
 
 func (p *ElevenLabsProvider) Synthesize(ctx context.Context, text string, voice Voice) (AudioResult, error) {
+	start := time.Now()
 	reqBody := elevenLabsRequest{
 		Text:    text,
 		ModelID: elevenLabsModelID,
@@ -131,6 +132,7 @@ func (p *ElevenLabsProvider) Synthesize(ctx context.Context, text string, voice 
 		return AudioResult{}, fmt.Errorf("read response: %w", err)
 	}
 
+	fmt.Fprintf(os.Stderr, "    ElevenLabs: %d chars → %d bytes (%s)\n", len(text), len(data), time.Since(start).Round(time.Millisecond))
 	return AudioResult{Data: data, Format: FormatMP3}, nil
 }
 

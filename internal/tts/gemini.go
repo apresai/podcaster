@@ -202,6 +202,7 @@ func (p *GeminiProvider) SynthesizeBatch(ctx context.Context, segments []script.
 }
 
 func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest) ([]byte, error) {
+	start := time.Now()
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal Gemini request: %w", err)
@@ -258,6 +259,7 @@ func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest) (
 		return nil, fmt.Errorf("decode Gemini audio base64: %w", err)
 	}
 
+	fmt.Fprintf(os.Stderr, "    Gemini TTS: %d bytes audio (%s)\n", len(audioBytes), time.Since(start).Round(time.Millisecond))
 	return audioBytes, nil
 }
 

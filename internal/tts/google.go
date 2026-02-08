@@ -3,6 +3,8 @@ package tts
 import (
 	"context"
 	"fmt"
+	"os"
+	"time"
 
 	texttospeech "cloud.google.com/go/texttospeech/apiv1"
 	texttospeechpb "cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
@@ -60,6 +62,7 @@ func (p *GoogleProvider) DefaultVoices() VoiceMap {
 }
 
 func (p *GoogleProvider) Synthesize(ctx context.Context, text string, voice Voice) (AudioResult, error) {
+	start := time.Now()
 	req := &texttospeechpb.SynthesizeSpeechRequest{
 		Input: &texttospeechpb.SynthesisInput{
 			InputSource: &texttospeechpb.SynthesisInput_Text{Text: text},
@@ -78,6 +81,7 @@ func (p *GoogleProvider) Synthesize(ctx context.Context, text string, voice Voic
 		return AudioResult{}, fmt.Errorf("Google TTS synthesize: %w", err)
 	}
 
+	fmt.Fprintf(os.Stderr, "    Google TTS: %d chars → %d bytes (%s)\n", len(text), len(resp.AudioContent), time.Since(start).Round(time.Millisecond))
 	return AudioResult{Data: resp.AudioContent, Format: FormatMP3}, nil
 }
 

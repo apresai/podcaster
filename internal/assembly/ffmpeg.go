@@ -16,7 +16,7 @@ const (
 	AudioChannels   = "2"
 	AudioCodec      = "libmp3lame"
 	AudioQuality    = "0" // LAME quality (0 = best)
-	AudioResampler  = "aresample=resampler=soxr"
+	AudioResampler  = "aresample"
 )
 
 type Assembler interface {
@@ -39,17 +39,20 @@ func (a *FFmpegAssembler) Assemble(ctx context.Context, segments []string, tmpDi
 	if err := generateSilence(ctx, silencePath); err != nil {
 		return fmt.Errorf("generate silence: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "    Generated 200ms silence: %s\n", silencePath)
 
 	// Build concat list
 	listPath := filepath.Join(tmpDir, "concat.txt")
 	if err := buildConcatList(segments, silencePath, listPath); err != nil {
 		return fmt.Errorf("build concat list: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "    Built concat list: %d segments + %d silences\n", len(segments), len(segments)-1)
 
 	// Run FFmpeg concat
 	if err := runFFmpegConcat(ctx, listPath, output); err != nil {
 		return fmt.Errorf("ffmpeg concat: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "    FFmpeg concat complete: %s\n", output)
 
 	return nil
 }
@@ -75,12 +78,15 @@ func generateSilence(ctx context.Context, output string) error {
 }
 
 func buildConcatList(segments []string, silencePath string, listPath string) error {
+	// Use basenames — all files are in the same directory as the concat list,
+	// and FFmpeg resolves relative paths relative to the concat file location.
+	silenceBase := filepath.Base(silencePath)
 	var lines []string
 	for i, seg := range segments {
-		lines = append(lines, fmt.Sprintf("file '%s'", seg))
+		lines = append(lines, fmt.Sprintf("file '%s'", filepath.Base(seg)))
 		// Add silence between segments (not after the last one)
 		if i < len(segments)-1 {
-			lines = append(lines, fmt.Sprintf("file '%s'", silencePath))
+			lines = append(lines, fmt.Sprintf("file '%s'", silenceBase))
 		}
 	}
 

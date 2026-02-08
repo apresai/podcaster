@@ -3,6 +3,7 @@ package tts
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -107,6 +108,7 @@ func WithRetry(ctx context.Context, fn func() error) error {
 			return err
 		} else {
 			lastErr = err
+			fmt.Fprintf(os.Stderr, "    retry %d/%d (backoff %s)\n", attempt, defaultMaxAttempts, backoff)
 		}
 
 		if attempt < defaultMaxAttempts {

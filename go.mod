@@ -5,12 +5,15 @@ go 1.24.0
 require (
 	cloud.google.com/go/texttospeech v1.16.0
 	github.com/anthropics/anthropic-sdk-go v1.21.0
+	github.com/apresai/apresai.dev/sdk v0.0.0
 	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/go-shiori/go-readability v0.0.0-20241012063810-92284fa8a71f
 	github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
 	github.com/spf13/cobra v1.8.1
 )
+
+replace github.com/apresai/apresai.dev/sdk => ../apresai.dev/sdk
 
 require (
 	cloud.google.com/go v0.120.0 // indirect

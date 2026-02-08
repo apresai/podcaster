@@ -247,10 +247,22 @@ func Run(ctx context.Context, opts Options) error {
 		voices.Host3 = tts.Voice{ID: dv.Host3.ID, Name: dv.Host3.Name, Provider: opts.Voice3Provider}
 	}
 
+	// Log voice routing
+	logf("Voice routing: Alex→%s, Sam→%s", voices.Host1.Provider, voices.Host2.Provider)
+	if opts.Voices >= 3 {
+		logf("Voice routing: Jordan→%s", voices.Host3.Provider)
+	}
+
 	// Determine if all voices use the same provider
 	singleProvider := voices.Host1.Provider == voices.Host2.Provider
 	if opts.Voices >= 3 {
 		singleProvider = singleProvider && voices.Host1.Provider == voices.Host3.Provider
+	}
+
+	if singleProvider {
+		logf("Mode: single-provider (%s)", voices.Host1.Provider)
+	} else {
+		logf("Mode: mixed-provider")
 	}
 
 	if singleProvider {
@@ -392,7 +404,7 @@ func Run(ctx context.Context, opts Options) error {
 	info, err := os.Stat(opts.Output)
 	if err == nil {
 		sizeMB := float64(info.Size()) / (1024 * 1024)
-		duration := probeDuration(opts.Output)
+		duration := ProbeDuration(opts.Output)
 		if duration != "" {
 			logf("Episode saved to %s (%s, %.1f MB)", opts.Output, duration, sizeMB)
 		} else {
@@ -524,7 +536,7 @@ func repeatStr(s string, n int) string {
 	return result
 }
 
-func probeDuration(path string) string {
+func ProbeDuration(path string) string {
 	out, err := exec.Command("ffprobe",
 		"-v", "quiet",
 		"-show_entries", "format=duration",
