@@ -112,23 +112,45 @@ var (
 
 // menu item indices — dynamic voice items shift based on voice count
 const (
-	idxInput    = 0
-	idxOutput   = 1
-	idxModel    = 2
-	idxTTS      = 3
-	idxTTSModel = 4
-	idxTone     = 5
-	idxDuration = 6
-	idxStyle    = 7
-	idxVoices   = 8
-	idxVoice1   = 9
-	idxVoice2   = 10
-	// idxVoice3 = 11 when voiceCount >= 3
+	idxInput        = 0
+	idxOutput       = 1
+	idxTopic        = 2
+	idxModel        = 3
+	idxTTS          = 4
+	idxTTSModel     = 5
+	idxTTSSpeed     = 6
+	idxTTSStability = 7
+	idxTTSPitch     = 8
+	idxTone         = 9
+	idxDuration     = 10
+	idxStyle        = 11
+	idxVoices       = 12
+	idxVoice1       = 13
+	idxVoice2       = 14
+	// idxVoice3 = 15 when voiceCount >= 3
 	// idxGenerate = last item
 )
 
 func defaultOutputFilename() string {
 	return time.Now().Format("podcast-20060102-1504.mp3")
+}
+
+// formatFloat returns an empty string for zero (meaning "default"), otherwise a compact string.
+func formatFloat(f float64) string {
+	if f == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.2f", f)
+}
+
+// parseFloat parses a string to float64, returning 0 for empty strings.
+func parseFloat(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	var f float64
+	fmt.Sscanf(s, "%f", &f)
+	return f
 }
 
 // buildAllVoiceOptions returns voice options from all TTS providers, grouped
@@ -172,14 +194,14 @@ func ttsModelOptions(provider string) []menuOption {
 	switch provider {
 	case "elevenlabs":
 		return []menuOption{
-			{label: "v3 (highest quality, expressive)", value: "eleven_v3"},
+			{label: "v3 (highest quality, expressive) (default)", value: "eleven_v3"},
 			{label: "Multilingual v2 (consistent, numbers)", value: "eleven_multilingual_v2"},
 			{label: "Turbo v2.5 (fast, balanced)", value: "eleven_turbo_v2_5"},
 			{label: "Flash v2.5 (fastest, 75ms)", value: "eleven_flash_v2_5"},
 		}
 	case "gemini":
 		return []menuOption{
-			{label: "Pro TTS (best quality, nuanced)", value: "gemini-2.5-pro-tts"},
+			{label: "Pro TTS (best quality, nuanced) (default)", value: "gemini-2.5-pro-tts"},
 			{label: "Flash TTS (fast, good quality)", value: "gemini-2.5-flash-tts"},
 		}
 	default:
@@ -198,6 +220,69 @@ func defaultTTSModel(provider string) string {
 		return "gemini-2.5-pro-tts"
 	default:
 		return ""
+	}
+}
+
+// ttsSpeedOptions returns speed presets for a given provider.
+func ttsSpeedOptions(provider string) []menuOption {
+	switch provider {
+	case "elevenlabs":
+		return []menuOption{
+			{label: "1.0 (default)", value: ""},
+			{label: "0.80 (slower)", value: "0.80"},
+			{label: "0.90 (slightly slow)", value: "0.90"},
+			{label: "1.10 (slightly fast)", value: "1.10"},
+			{label: "1.20 (faster)", value: "1.20"},
+		}
+	case "google":
+		return []menuOption{
+			{label: "1.0 (default)", value: ""},
+			{label: "0.50 (very slow)", value: "0.50"},
+			{label: "0.75 (slower)", value: "0.75"},
+			{label: "0.90 (slightly slow)", value: "0.90"},
+			{label: "1.10 (slightly fast)", value: "1.10"},
+			{label: "1.25 (faster)", value: "1.25"},
+			{label: "1.50 (fast)", value: "1.50"},
+		}
+	default:
+		return []menuOption{
+			{label: "Not supported (Gemini)", value: ""},
+		}
+	}
+}
+
+// ttsStabilityOptions returns stability presets (ElevenLabs only).
+func ttsStabilityOptions(provider string) []menuOption {
+	if provider != "elevenlabs" {
+		return []menuOption{
+			{label: "Not supported (" + provider + ")", value: ""},
+		}
+	}
+	return []menuOption{
+		{label: "0.50 (default)", value: ""},
+		{label: "0.20 (very expressive)", value: "0.20"},
+		{label: "0.35 (expressive)", value: "0.35"},
+		{label: "0.50 (balanced)", value: "0.50"},
+		{label: "0.65 (stable)", value: "0.65"},
+		{label: "0.80 (very stable)", value: "0.80"},
+	}
+}
+
+// ttsPitchOptions returns pitch presets (Google only).
+func ttsPitchOptions(provider string) []menuOption {
+	if provider != "google" {
+		return []menuOption{
+			{label: "Not supported (" + provider + ")", value: ""},
+		}
+	}
+	return []menuOption{
+		{label: "0.0 (default)", value: ""},
+		{label: "-8.0 (much lower)", value: "-8.00"},
+		{label: "-4.0 (lower)", value: "-4.00"},
+		{label: "-2.0 (slightly lower)", value: "-2.00"},
+		{label: "+2.0 (slightly higher)", value: "2.00"},
+		{label: "+4.0 (higher)", value: "4.00"},
+		{label: "+8.0 (much higher)", value: "8.00"},
 	}
 }
 
@@ -226,10 +311,14 @@ func buildMenuItems(voiceCount int) []menuItem {
 			value: outputVal,
 		},
 		{
+			label: "Topic",
+			value: flagTopic,
+		},
+		{
 			label: "Model",
 			value: flagModel,
 			options: []menuOption{
-				{label: "Haiku 4.5 (fast, affordable)", value: "haiku"},
+				{label: "Haiku 4.5 (fast, affordable) (default)", value: "haiku"},
 				{label: "Sonnet 4.5 (balanced)", value: "sonnet"},
 				{label: "Gemini Flash (fast)", value: "gemini-flash"},
 				{label: "Gemini Pro (powerful)", value: "gemini-pro"},
@@ -239,7 +328,7 @@ func buildMenuItems(voiceCount int) []menuItem {
 			label: "Default Provider",
 			value: flagTTS,
 			options: []menuOption{
-				{label: "Gemini (multi-speaker batch)", value: "gemini"},
+				{label: "Gemini (multi-speaker batch) (default)", value: "gemini"},
 				{label: "ElevenLabs (premium voices)", value: "elevenlabs"},
 				{label: "Google Cloud TTS (Chirp 3 HD)", value: "google"},
 			},
@@ -250,10 +339,25 @@ func buildMenuItems(voiceCount int) []menuItem {
 			options: ttsModelOptions(flagTTS),
 		},
 		{
+			label:   "TTS Speed",
+			value:   formatFloat(flagTTSSpeed),
+			options: ttsSpeedOptions(flagTTS),
+		},
+		{
+			label:   "TTS Stability",
+			value:   formatFloat(flagTTSStability),
+			options: ttsStabilityOptions(flagTTS),
+		},
+		{
+			label:   "TTS Pitch",
+			value:   formatFloat(flagTTSPitch),
+			options: ttsPitchOptions(flagTTS),
+		},
+		{
 			label: "Tone",
 			value: flagTone,
 			options: []menuOption{
-				{label: "Casual - light and engaging", value: "casual"},
+				{label: "Casual - light and engaging (default)", value: "casual"},
 				{label: "Technical - precise, domain-specific", value: "technical"},
 				{label: "Educational - accessible, builds understanding", value: "educational"},
 			},
@@ -263,7 +367,7 @@ func buildMenuItems(voiceCount int) []menuItem {
 			value: flagDuration,
 			options: []menuOption{
 				{label: "Short (~30 segments, ~10 min)", value: "short"},
-				{label: "Standard (~50 segments, ~15 min)", value: "standard"},
+				{label: "Standard (~50 segments, ~15 min) (default)", value: "standard"},
 				{label: "Long (~75 segments, ~25 min)", value: "long"},
 				{label: "Deep Dive (~200 segments, ~65 min)", value: "deep"},
 			},
@@ -277,7 +381,7 @@ func buildMenuItems(voiceCount int) []menuItem {
 			value: fmt.Sprintf("%d", voiceCount),
 			options: []menuOption{
 				{label: "1 - Solo monologue (Alex)", value: "1"},
-				{label: "2 - Two hosts (Alex & Sam)", value: "2"},
+				{label: "2 - Two hosts (Alex & Sam) (default)", value: "2"},
 				{label: "3 - Roundtable (Alex, Sam & Jordan)", value: "3"},
 			},
 		},
@@ -345,7 +449,7 @@ func (m tuiModel) generateIdx() int {
 }
 
 func (m tuiModel) isTextInput(idx int) bool {
-	return idx == idxInput || idx == idxOutput
+	return idx == idxInput || idx == idxOutput || idx == idxTopic
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -466,15 +570,25 @@ func (m tuiModel) updateEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		item.editing = false
 		m.state = stateMenu
 
-		// If default provider changed, update TTS model options and voice defaults
+		// If default provider changed, update TTS model/speed/stability/pitch options and voice defaults
 		if idx == idxTTS {
 			flagTTS = item.value // update so buildAllVoiceOptions picks new defaults
 
 			// Rebuild TTS Model options for new provider
-			newModelOpts := ttsModelOptions(item.value)
-			m.items[idxTTSModel].options = newModelOpts
+			m.items[idxTTSModel].options = ttsModelOptions(item.value)
 			m.items[idxTTSModel].value = defaultTTSModel(item.value)
 			m.items[idxTTSModel].cursor = 0
+
+			// Rebuild Speed/Stability/Pitch options for new provider, reset to defaults
+			m.items[idxTTSSpeed].options = ttsSpeedOptions(item.value)
+			m.items[idxTTSSpeed].value = ""
+			m.items[idxTTSSpeed].cursor = 0
+			m.items[idxTTSStability].options = ttsStabilityOptions(item.value)
+			m.items[idxTTSStability].value = ""
+			m.items[idxTTSStability].cursor = 0
+			m.items[idxTTSPitch].options = ttsPitchOptions(item.value)
+			m.items[idxTTSPitch].value = ""
+			m.items[idxTTSPitch].cursor = 0
 
 			// Update voice defaults
 			_, dv1, dv2, dv3 := buildAllVoiceOptions()
@@ -597,9 +711,13 @@ func (m *tuiModel) rebuildForVoiceCount() {
 	// Preserve current values
 	savedInput := m.items[idxInput].value
 	savedOutput := m.items[idxOutput].value
+	savedTopic := m.items[idxTopic].value
 	savedModel := m.items[idxModel].value
 	savedTTS := m.items[idxTTS].value
 	savedTTSModel := m.items[idxTTSModel].value
+	savedSpeed := m.items[idxTTSSpeed].value
+	savedStability := m.items[idxTTSStability].value
+	savedPitch := m.items[idxTTSPitch].value
 	savedTone := m.items[idxTone].value
 	savedDuration := m.items[idxDuration].value
 	savedStyle := m.items[idxStyle].value
@@ -610,9 +728,13 @@ func (m *tuiModel) rebuildForVoiceCount() {
 	// Restore values
 	m.items[idxInput].value = savedInput
 	m.items[idxOutput].value = savedOutput
+	m.items[idxTopic].value = savedTopic
 	m.items[idxModel].value = savedModel
 	m.items[idxTTS].value = savedTTS
 	m.items[idxTTSModel].value = savedTTSModel
+	m.items[idxTTSSpeed].value = savedSpeed
+	m.items[idxTTSStability].value = savedStability
+	m.items[idxTTSPitch].value = savedPitch
 	m.items[idxTone].value = savedTone
 	m.items[idxDuration].value = savedDuration
 	m.items[idxStyle].value = savedStyle
@@ -681,7 +803,18 @@ func (m tuiModel) View() string {
 			// Show text input with blinking cursor
 			renderedValue = menuValueStyle.Render(item.value + "_")
 		} else if item.value == "" {
-			renderedValue = menuValueDimStyle.Render("(not set)")
+			// Show contextual placeholder text
+			placeholder := "(not set)"
+			switch i {
+			case idxTopic:
+				placeholder = "(optional — focus on specific aspect)"
+			case idxTTSSpeed, idxTTSStability, idxTTSPitch:
+				// Option pickers show "Default" label from first option
+				if len(item.options) > 0 {
+					placeholder = item.options[0].label
+				}
+			}
+			renderedValue = menuValueDimStyle.Render(placeholder)
 		} else {
 			displayVal := item.value
 			// Show friendly label for option-based items
@@ -767,9 +900,13 @@ func runInteractiveSetup() error {
 	// Apply selections to flags
 	flagInput = final.items[idxInput].value
 	flagOutput = final.items[idxOutput].value
+	flagTopic = final.items[idxTopic].value
 	flagModel = final.items[idxModel].value
 	flagTTS = final.items[idxTTS].value
 	flagTTSModel = final.items[idxTTSModel].value
+	flagTTSSpeed = parseFloat(final.items[idxTTSSpeed].value)
+	flagTTSStability = parseFloat(final.items[idxTTSStability].value)
+	flagTTSPitch = parseFloat(final.items[idxTTSPitch].value)
 	flagTone = final.items[idxTone].value
 	flagDuration = final.items[idxDuration].value
 	if final.items[idxStyle].value != "" {
