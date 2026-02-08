@@ -82,7 +82,7 @@ func ToolDefs() []mcp.Tool {
 		},
 		{
 			Name:        "get_podcast",
-			Description: "Get the status and details of a podcast by ID. Use this to check on a running generation or retrieve a completed podcast's audio URL.",
+			Description: "Get the status and details of a podcast by ID. Use this to check on a running generation or retrieve a completed podcast. Completed podcasts include an audio_url with a direct MP3 link — always show this link to the user.",
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -96,7 +96,7 @@ func ToolDefs() []mcp.Tool {
 		},
 		{
 			Name:        "list_podcasts",
-			Description: "List all generated podcasts, newest first. Returns podcast IDs, titles, status, and audio URLs.",
+			Description: "List all generated podcasts, newest first. Each completed podcast includes an audio_url field with a direct link to the MP3 file that users can click to listen. Always show the audio_url link for completed podcasts.",
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
