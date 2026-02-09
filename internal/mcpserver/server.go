@@ -51,6 +51,10 @@ type Server struct {
 }
 
 // New creates and configures the MCP server.
+// Secrets are loaded asynchronously to minimize cold-start latency on AgentCore,
+// where the container must have port 8000 listening before AgentCore sends the
+// first request. The HTTP listener starts immediately; secrets finish loading
+// in the background (typically <1s).
 func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) {
 	// Load AWS config
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
@@ -63,12 +67,17 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	// Auto-instrument AWS SDK calls (DynamoDB, S3, Secrets Manager)
 	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
 
-	// Fetch secrets if running in AWS
+	// Fetch secrets asynchronously — don't block server startup.
+	// AgentCore sends the first HTTP request immediately after the container
+	// starts, so we must be listening on :8000 ASAP. Secrets are only needed
+	// when generate_podcast actually runs the pipeline.
 	if cfg.SecretPrefix != "" {
-		if err := loadSecrets(ctx, awsCfg, cfg.SecretPrefix, logger); err != nil {
-			logger.Warn("Failed to load secrets from Secrets Manager, falling back to env vars",
-				"error", err)
-		}
+		go func() {
+			if err := loadSecrets(ctx, awsCfg, cfg.SecretPrefix, logger); err != nil {
+				logger.Warn("Failed to load secrets from Secrets Manager, falling back to env vars",
+					"error", err)
+			}
+		}()
 	}
 
 	if cfg.S3Bucket == "" {
@@ -109,18 +118,15 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 }
 
 // Start runs the HTTP MCP server.
-// NOTE: We use mcp-go's built-in Start() with WithStateLess(true) because
-// AgentCore generates its own Mcp-Session-Id headers (plain UUIDs without
-// the "mcp-session-" prefix). Wrapping with otelhttp breaks this because
-// it changes the http.Handler chain — mcp-go's Start() creates its own mux
-// internally. See AgentCore MCP protocol contract requirements.
+// Uses a custom mux with request logging so we can debug AgentCore request
+// routing. The StreamableHTTPServer is mounted at /mcp and used as a handler.
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.cfg.Port)
 	s.log.Info("Starting MCP server", "addr", addr)
 
 	store := s.handlers.store
 
-	httpServer := server.NewStreamableHTTPServer(s.mcp,
+	mcpHandler := server.NewStreamableHTTPServer(s.mcp,
 		server.WithStateLess(true), // AgentCore manages session IDs
 		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
 			authHeader := r.Header.Get("Authorization")
@@ -150,7 +156,35 @@ func (s *Server) Start() error {
 			})
 		}),
 	)
-	return httpServer.Start(addr)
+
+	mux := http.NewServeMux()
+	// Register both /mcp and /mcp/ — AgentCore sends POST to /mcp/ (trailing
+	// slash) and Go's ServeMux won't match /mcp for /mcp/ POST requests.
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp/", mcpHandler)
+
+	// Wrap with middleware that ensures Content-Type is set. AgentCore may not
+	// send Content-Type: application/json, which causes mcp-go to reject with
+	// 400 Bad Request. Also logs requests for debugging.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.log.Info("HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"content_type", r.Header.Get("Content-Type"),
+		)
+		// Ensure Content-Type is set for POST requests — mcp-go requires
+		// application/json and rejects requests without it.
+		if r.Method == http.MethodPost && r.Header.Get("Content-Type") == "" {
+			r.Header.Set("Content-Type", "application/json")
+		}
+		mux.ServeHTTP(w, r)
+	})
+
+	httpSrv := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
+	return httpSrv.ListenAndServe()
 }
 
 // loadSecrets fetches API keys from Secrets Manager and sets them as env vars.
@@ -161,6 +195,7 @@ func loadSecrets(ctx context.Context, cfg aws.Config, prefix string, logger *slo
 		"ANTHROPIC_API_KEY":  prefix + "ANTHROPIC_API_KEY",
 		"GEMINI_API_KEY":     prefix + "GEMINI_API_KEY",
 		"ELEVENLABS_API_KEY": prefix + "ELEVENLABS_API_KEY",
+		"VERTEX_AI_API_KEY":  prefix + "VERTEX_AI_API_KEY",
 	}
 
 	for envVar, secretID := range secrets {

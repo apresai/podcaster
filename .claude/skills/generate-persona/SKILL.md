@@ -50,4 +50,4 @@ var CustomPersona = Persona{
 - Catchphrases must NOT overlap with existing personas' catchphrases
 - The independence clause MUST be present and complete
 - Background should feel like a real media professional, not a caricature
-- If a voice name is provided (e.g., "Fenrir"), match the persona's energy to the voice description from `internal/tts/gemini.go` or `internal/tts/elevenlabs.go`
+- If a voice name is provided (e.g., "Fenrir"), match the persona's energy to the voice description from `internal/tts/gemini.go`, `internal/tts/express.go`, or `internal/tts/elevenlabs.go`

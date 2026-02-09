@@ -55,7 +55,7 @@ deploy-infra: build-play-counter
 
 create-secrets:
 	@echo "Creating Secrets Manager secrets for MCP server..."
-	@for key in ANTHROPIC_API_KEY GEMINI_API_KEY ELEVENLABS_API_KEY; do \
+	@for key in ANTHROPIC_API_KEY GEMINI_API_KEY ELEVENLABS_API_KEY VERTEX_AI_API_KEY; do \
 		echo "  Creating /podcaster/mcp/$$key"; \
 		aws secretsmanager create-secret \
 			--name "/podcaster/mcp/$$key" \
@@ -162,38 +162,37 @@ verify-deploy:
 
 smoke-test:
 	@echo "Smoke-testing deployed AgentCore MCP server..."
-	@RUNTIME_ID=$$(aws bedrock-agentcore-control list-agent-runtimes \
-		--query "agentRuntimes[?agentRuntimeName=='podcaster_mcp'].agentRuntimeId" \
+	@RUNTIME_ARN=$$(aws bedrock-agentcore-control list-agent-runtimes \
+		--query "agentRuntimes[?agentRuntimeName=='podcaster_mcp'].agentRuntimeArn" \
 		--output text --region $(AWS_REGION)); \
-	if [ -z "$$RUNTIME_ID" ]; then \
+	if [ -z "$$RUNTIME_ARN" ]; then \
 		echo "ERROR: No runtime named podcaster_mcp found"; exit 1; \
 	fi; \
-	echo "Runtime ID: $$RUNTIME_ID"; \
+	echo "Runtime ARN: $$RUNTIME_ARN"; \
 	echo "--- Sending initialize..."; \
-	INIT_RESP=$$(aws bedrock-agentcore-runtime invoke-agent-runtime \
-		--agent-runtime-id $$RUNTIME_ID \
+	aws bedrock-agentcore invoke-agent-runtime \
+		--agent-runtime-arn $$RUNTIME_ARN \
 		--region $(AWS_REGION) \
 		--cli-binary-format raw-in-base64-out \
 		--accept "application/json, text/event-stream" \
 		--payload '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke-test"},"capabilities":{}}}' \
-		/dev/stdout 2>/dev/null); \
-	echo "$$INIT_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'podcaster' in d.get('result',{}).get('serverInfo',{}).get('name',''), f'Bad init: {d}'; print('  init OK: server=' + d['result']['serverInfo']['name'])" || { echo "FAIL: initialize"; exit 1; }; \
-	SESSION_ID=$$(echo "$$INIT_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sessionId',''))"); \
+		/tmp/podcaster-smoke-init.json >/dev/null 2>&1; \
+	cat /tmp/podcaster-smoke-init.json | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'podcaster' in d.get('result',{}).get('serverInfo',{}).get('name',''), f'Bad init: {d}'; print('  init OK: server=' + d['result']['serverInfo']['name'])" || { echo "FAIL: initialize"; cat /tmp/podcaster-smoke-init.json; exit 1; }; \
 	echo "--- Sending tools/list..."; \
-	TOOLS_RESP=$$(aws bedrock-agentcore-runtime invoke-agent-runtime \
-		--agent-runtime-id $$RUNTIME_ID \
+	aws bedrock-agentcore invoke-agent-runtime \
+		--agent-runtime-arn $$RUNTIME_ARN \
 		--region $(AWS_REGION) \
 		--cli-binary-format raw-in-base64-out \
 		--accept "application/json, text/event-stream" \
 		--payload '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-		/dev/stdout 2>/dev/null); \
-	echo "$$TOOLS_RESP" | python3 -c "\
+		/tmp/podcaster-smoke-tools.json >/dev/null 2>&1; \
+	cat /tmp/podcaster-smoke-tools.json | python3 -c "\
 import sys,json; d=json.load(sys.stdin); \
 tools=[t['name'] for t in d.get('result',{}).get('tools',[])]; \
 expected={'generate_podcast','get_podcast','list_podcasts'}; \
 found=set(tools) & expected; \
 assert found==expected, f'Missing tools: {expected-found}, got: {tools}'; \
-print('  tools OK: ' + ', '.join(sorted(tools)))" || { echo "FAIL: tools/list"; exit 1; }; \
+print('  tools OK: ' + ', '.join(sorted(tools)))" || { echo "FAIL: tools/list"; cat /tmp/podcaster-smoke-tools.json; exit 1; }; \
 	echo "Smoke test PASSED."
 
 # --- Portal ---

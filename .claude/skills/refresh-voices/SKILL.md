@@ -19,6 +19,7 @@ Examples:
    - `internal/tts/gemini.go` — constants `geminiDefaultVoice1/2/3`, `DefaultVoices()` method, `geminiAvailableVoices()` function
    - `internal/tts/elevenlabs.go` — constants `elevenLabsDefaultVoice1/2/3` (with inline `// Name` comments), `DefaultVoices()` method, `elevenLabsAvailableVoices()` fallback list
    - `internal/tts/google.go` — constants `googleDefaultVoice1/2/3`, `DefaultVoices()` method, `googleAvailableVoices()` function
+   - `internal/tts/express.go` and `internal/tts/vertex.go` — share the same `geminiDefaultVoice1/2/3` constants from `gemini.go`, so updating Gemini defaults also updates vertex-express and gemini-vertex defaults
 
 2. **Fetch live voice lists** by running:
    ```
