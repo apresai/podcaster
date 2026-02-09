@@ -191,6 +191,23 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 
 Remote MCP server deployed on AWS Bedrock AgentCore. Runs the pipeline as a goroutine, tracks via DynamoDB, uploads MP3 to S3, served via CloudFront CDN.
 
+### Relationship to apresai.dev
+
+The podcaster MCP server and the [apresai.dev website](https://apresai.dev) (`~/dev/apresai.dev`) share the same S3 bucket (`apresai-podcasts-{account_id}`) for podcast audio files. Two CloudFront distributions serve from this bucket:
+
+| Distribution | Domain | Purpose | CDK Stack |
+|---|---|---|---|
+| `E2V8XL1151FKNB` | `apresai.dev` | Website + podcast playback via `/audio/*` path | `ApresAiStack-dev` in `~/dev/apresai.dev` |
+| `E1W4M4V0CRXQ5R` | `podcasts.apresai.dev` | Dedicated CDN for MCP-generated audio | `PodcasterMcpStack` in `~/dev/podcaster` |
+
+Both distributions use **OAC** (Origin Access Control) to access the podcast S3 bucket. The bucket policy is auto-managed by CDK — each `S3BucketOrigin.withOriginAccessControl()` call adds its distribution's service principal.
+
+**Important**: If either CDK stack is deployed, it may overwrite the bucket policy. Both stacks must use OAC (not OAI) so the auto-generated policy includes entries for both distributions. If one stack switches to OAI, it will break the other.
+
+Other shared resources:
+- **DynamoDB table** `apresai-podcasts-prod` — podcast metadata, used by both the MCP server and the apresai.dev upload/list/delete Lambda functions
+- **Route53 hosted zone** `apresai.dev` (Z042792810Z6CUA4J2WCN) — both stacks look up this zone for DNS records
+
 ### Local Testing
 
 ```bash
