@@ -258,6 +258,11 @@ func ttsModelOptions(provider string) []menuOption {
 			{label: "Pro TTS (best quality, nuanced) (default)", value: "gemini-2.5-pro-preview-tts"},
 			{label: "Flash TTS (fast, good quality)", value: "gemini-2.5-flash-preview-tts"},
 		}
+	case "gemini-vertex", "vertex-express":
+		return []menuOption{
+			{label: "Flash TTS (fast, good quality) (default)", value: "gemini-2.5-flash-tts"},
+			{label: "Pro TTS (best quality, nuanced)", value: "gemini-2.5-pro-tts"},
+		}
 	default:
 		return []menuOption{
 			{label: "Chirp 3 HD (fixed)", value: ""},
@@ -275,6 +280,8 @@ func defaultTTSModel(provider string) string {
 		return "eleven_v3"
 	case "gemini":
 		return "gemini-2.5-pro-preview-tts"
+	case "gemini-vertex", "vertex-express":
+		return "gemini-2.5-flash-tts"
 	default:
 		return ""
 	}
@@ -489,6 +496,7 @@ func buildMenuItems(voiceCount int) []menuItem {
 		options: []menuOption{
 			{label: "Auto (from voice selection) (default)", value: "auto"},
 			{label: "Gemini (multi-speaker batch)", value: "gemini"},
+			{label: "Vertex Express (API key, higher quotas)", value: "vertex-express"},
 			{label: "ElevenLabs (premium voices)", value: "elevenlabs"},
 			{label: "Google Cloud TTS (Chirp 3 HD)", value: "google"},
 		},

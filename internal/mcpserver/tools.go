@@ -51,7 +51,7 @@ func ToolDefs() []mcp.Tool {
 					},
 					"tts": map[string]any{
 						"type":        "string",
-						"description": "Text-to-speech provider: gemini, gemini-vertex (Vertex AI, higher rate limits), elevenlabs, google",
+						"description": "Text-to-speech provider: gemini, gemini-vertex (Vertex AI, higher rate limits), vertex-express (Vertex AI with API key auth), elevenlabs, google",
 						"default":     "gemini",
 					},
 					"tone": map[string]any{

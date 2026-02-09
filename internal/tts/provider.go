@@ -73,7 +73,7 @@ func AvailableVoices(providerName string) ([]VoiceInfo, error) {
 		return elevenLabsAvailableVoices(), nil
 	case "google":
 		return googleAvailableVoices(), nil
-	case "gemini", "gemini-vertex":
+	case "gemini", "gemini-vertex", "vertex-express":
 		return geminiAvailableVoices(), nil
 	default:
 		return nil, fmt.Errorf("unknown TTS provider %q", providerName)
@@ -179,6 +179,10 @@ var validModels = map[string]map[string]bool{
 		"gemini-2.5-flash-tts": true,
 		"gemini-2.5-pro-tts":   true,
 	},
+	"vertex-express": {
+		"gemini-2.5-flash-tts": true,
+		"gemini-2.5-pro-tts":   true,
+	},
 }
 
 // ValidateModel checks that the given model ID is valid for the provider.
@@ -214,8 +218,10 @@ func NewProvider(name string, voice1, voice2, voice3 string, cfg ProviderConfig)
 		return NewGeminiProvider(voice1, voice2, voice3, cfg), nil
 	case "gemini-vertex":
 		return NewVertexProvider(voice1, voice2, voice3, cfg)
+	case "vertex-express":
+		return NewVertexExpressProvider(voice1, voice2, voice3, cfg)
 	default:
-		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, gemini, or gemini-vertex", name)
+		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, gemini, gemini-vertex, or vertex-express", name)
 	}
 }
 
@@ -226,7 +232,7 @@ func ParseVoiceSpec(spec string) (provider, voiceID string) {
 		prefix := spec[:i]
 		// Only treat as provider prefix if it's a known provider name
 		switch prefix {
-		case "elevenlabs", "gemini", "gemini-vertex", "google":
+		case "elevenlabs", "gemini", "gemini-vertex", "vertex-express", "google":
 			return prefix, spec[i+1:]
 		}
 	}

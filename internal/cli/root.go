@@ -91,7 +91,7 @@ func init() {
 	generateCmd.Flags().StringVarP(&flagFromScript, "from-script", "f", "", "Generate audio from an existing script JSON file")
 	generateCmd.Flags().BoolVarP(&flagVerbose, "verbose", "v", false, "Enable detailed logging")
 	generateCmd.Flags().BoolVarP(&flagTUI, "tui", "t", false, "Interactive setup wizard for generation options")
-	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "TTS provider: gemini, gemini-vertex, elevenlabs, or google (default gemini)")
+	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "TTS provider: gemini, gemini-vertex, vertex-express, elevenlabs, or google (default gemini)")
 	generateCmd.Flags().StringVarP(&flagModel, "model", "m", "haiku", "Script generation model: haiku, sonnet, gemini-flash, gemini-pro")
 	generateCmd.Flags().StringVar(&flagTTSModel, "tts-model", "", "TTS model ID (e.g., eleven_v3, gemini-2.5-flash-preview-tts)")
 	generateCmd.Flags().Float64Var(&flagTTSSpeed, "tts-speed", 0, "Speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0)")
@@ -161,9 +161,9 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate TTS provider name
-	validProviders := map[string]bool{"elevenlabs": true, "google": true, "gemini": true, "gemini-vertex": true}
+	validProviders := map[string]bool{"elevenlabs": true, "google": true, "gemini": true, "gemini-vertex": true, "vertex-express": true}
 	if !validProviders[flagTTS] {
-		return fmt.Errorf("invalid TTS provider %q: must be gemini, gemini-vertex, elevenlabs, or google", flagTTS)
+		return fmt.Errorf("invalid TTS provider %q: must be gemini, gemini-vertex, vertex-express, elevenlabs, or google", flagTTS)
 	}
 
 	// Validate model
@@ -190,7 +190,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			if flagTTSSpeed < 0.25 || flagTTSSpeed > 2.0 {
 				return fmt.Errorf("--tts-speed for Google must be between 0.25 and 2.0 (got %.2f)", flagTTSSpeed)
 			}
-		case "gemini", "gemini-vertex":
+		case "gemini", "gemini-vertex", "vertex-express":
 			return fmt.Errorf("--tts-speed is not supported by Gemini TTS")
 		}
 	}
@@ -362,7 +362,7 @@ func checkAPIKeys(ttsProviders []string, model string) error {
 				if !hasKey("ELEVENLABS_API_KEY", flagElevenLabsAPIKey) {
 					needed["ELEVENLABS_API_KEY"] = true
 				}
-			case "gemini":
+			case "gemini", "vertex-express":
 				if !hasKey("GEMINI_API_KEY", flagGeminiAPIKey) {
 					needed["GEMINI_API_KEY"] = true
 				}
