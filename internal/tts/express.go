@@ -54,10 +54,13 @@ func NewVertexExpressProvider(voice1, voice2, voice3 string, cfg ProviderConfig)
 
 	apiKey := cfg.APIKey
 	if apiKey == "" {
+		apiKey = os.Getenv("VERTEX_AI_API_KEY_1")
+	}
+	if apiKey == "" {
 		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("GEMINI_API_KEY environment variable is required for vertex-express TTS provider")
+		return nil, fmt.Errorf("VERTEX_AI_API_KEY_1 or GEMINI_API_KEY environment variable is required for vertex-express TTS provider")
 	}
 
 	return &VertexExpressProvider{
@@ -113,7 +116,7 @@ func (p *VertexExpressProvider) endpoint() string {
 func (p *VertexExpressProvider) Synthesize(ctx context.Context, text string, voice Voice) (AudioResult, error) {
 	req := geminiRequest{
 		Contents: []geminiContent{
-			{Parts: []geminiPart{{Text: text}}},
+			{Role: "user", Parts: []geminiPart{{Text: text}}},
 		},
 		GenerationConfig: geminiGenConfig{
 			ResponseModalities: []string{"AUDIO"},
@@ -162,7 +165,7 @@ func (p *VertexExpressProvider) SynthesizeBatch(ctx context.Context, segments []
 
 	req := geminiRequest{
 		Contents: []geminiContent{
-			{Parts: []geminiPart{{Text: dialogue}}},
+			{Role: "user", Parts: []geminiPart{{Text: dialogue}}},
 		},
 		GenerationConfig: geminiGenConfig{
 			ResponseModalities: []string{"AUDIO"},
