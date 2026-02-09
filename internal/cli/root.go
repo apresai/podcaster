@@ -367,8 +367,8 @@ func checkAPIKeys(ttsProviders []string, model string) error {
 					needed["GEMINI_API_KEY"] = true
 				}
 			case "vertex-express":
-				if !hasKey("VERTEX_AI_API_KEY_1", "") && !hasKey("GEMINI_API_KEY", flagGeminiAPIKey) {
-					needed["VERTEX_AI_API_KEY_1 or GEMINI_API_KEY"] = true
+				if !hasKey("VERTEX_AI_API_KEY", "") && !hasKey("GEMINI_API_KEY", flagGeminiAPIKey) {
+					needed["VERTEX_AI_API_KEY or GEMINI_API_KEY"] = true
 				}
 			case "gemini-vertex":
 				// Uses ADC (gcloud auth application-default login or GOOGLE_APPLICATION_CREDENTIALS)

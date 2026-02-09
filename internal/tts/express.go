@@ -54,13 +54,13 @@ func NewVertexExpressProvider(voice1, voice2, voice3 string, cfg ProviderConfig)
 
 	apiKey := cfg.APIKey
 	if apiKey == "" {
-		apiKey = os.Getenv("VERTEX_AI_API_KEY_1")
+		apiKey = os.Getenv("VERTEX_AI_API_KEY")
 	}
 	if apiKey == "" {
 		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("VERTEX_AI_API_KEY_1 or GEMINI_API_KEY environment variable is required for vertex-express TTS provider")
+		return nil, fmt.Errorf("VERTEX_AI_API_KEY or GEMINI_API_KEY environment variable is required for vertex-express TTS provider")
 	}
 
 	return &VertexExpressProvider{
