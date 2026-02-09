@@ -1,4 +1,4 @@
-.PHONY: build install clean dev build-mcp-server build-play-counter docker-build docker-push deploy-infra create-secrets deploy-agentcore update-agentcore force-update-agentcore deploy verify-deploy smoke-test smoke-test-local
+.PHONY: build install clean dev build-mcp-server build-play-counter docker-build docker-push deploy-infra create-secrets deploy-agentcore update-agentcore force-update-agentcore deploy verify-deploy smoke-test smoke-test-local build-portal create-admin-user create-test-apikey
 
 BINARY := podcaster
 VERSION := 0.1.0
@@ -195,6 +195,43 @@ found=set(tools) & expected; \
 assert found==expected, f'Missing tools: {expected-found}, got: {tools}'; \
 print('  tools OK: ' + ', '.join(sorted(tools)))" || { echo "FAIL: tools/list"; exit 1; }; \
 	echo "Smoke test PASSED."
+
+# --- Portal ---
+
+build-portal:
+	cd portal && npm install && npm run build
+
+# --- Admin Tools ---
+
+# Create admin user in DynamoDB for testing (run with EMAIL=your@email.com)
+create-admin-user:
+	@if [ -z "$(EMAIL)" ]; then echo "Usage: make create-admin-user EMAIL=you@example.com"; exit 1; fi
+	@USER_ID=$$(python3 -c "import uuid; print(str(uuid.uuid4()))"); \
+	NOW=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	echo "Creating admin user: $(EMAIL) (id=$$USER_ID)"; \
+	aws dynamodb put-item \
+		--table-name $(DYNAMODB_TABLE) \
+		--item '{"PK":{"S":"USER#'"$$USER_ID"'"},"SK":{"S":"PROFILE"},"email":{"S":"$(EMAIL)"},"name":{"S":"Admin"},"status":{"S":"active"},"role":{"S":"admin"},"createdAt":{"S":"'"$$NOW"'"},"approvedAt":{"S":"'"$$NOW"'"}}' \
+		--region $(AWS_REGION); \
+	echo "Admin user created: $$USER_ID"
+
+# Create an API key for testing (run with USER_ID=uuid)
+create-test-apikey:
+	@if [ -z "$(USER_ID)" ]; then echo "Usage: make create-test-apikey USER_ID=<uuid>"; exit 1; fi
+	@KEY=$$(python3 -c "import secrets; print('pk_' + secrets.token_hex(32))"); \
+	PREFIX=$$(echo $$KEY | cut -c4-11); \
+	HASH=$$(python3 -c "import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())" "$$KEY"); \
+	NOW=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	echo "Creating API key: $$PREFIX..."; \
+	aws dynamodb put-item \
+		--table-name $(DYNAMODB_TABLE) \
+		--item '{"PK":{"S":"APIKEY#'"$$PREFIX"'"},"SK":{"S":"METADATA"},"userId":{"S":"$(USER_ID)"},"keyHash":{"S":"'"$$HASH"'"},"name":{"S":"test-key"},"status":{"S":"active"},"createdAt":{"S":"'"$$NOW"'"}}' \
+		--region $(AWS_REGION); \
+	echo ""; \
+	echo "API Key (save this, shown once):"; \
+	echo "  $$KEY"; \
+	echo ""; \
+	echo "Key prefix: $$PREFIX"
 
 smoke-test-local:
 	@echo "Smoke-testing local MCP server at http://localhost:8000/mcp..."

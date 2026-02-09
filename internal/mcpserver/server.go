@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -17,11 +19,11 @@ import (
 
 // Config holds server configuration.
 type Config struct {
-	Port         int
-	TableName    string
-	S3Bucket     string
-	CDNBaseURL   string
-	AWSRegion    string
+	Port                 int
+	TableName            string
+	S3Bucket             string
+	CDNBaseURL           string
+	AWSRegion            string
 	MaxTasks     int
 	SecretPrefix string // e.g. "/podcaster/mcp/"
 }
@@ -29,11 +31,11 @@ type Config struct {
 // DefaultConfig returns a Config populated from environment variables.
 func DefaultConfig() Config {
 	cfg := Config{
-		Port:         8000,
-		TableName:    envOr("DYNAMODB_TABLE", "apresai-podcasts-prod"),
-		S3Bucket:     envOr("S3_BUCKET", ""),
-		CDNBaseURL:   envOr("CDN_BASE_URL", "https://podcasts.apresai.dev"),
-		AWSRegion:    envOr("AWS_REGION", "us-east-1"),
+		Port:                 8000,
+		TableName:            envOr("DYNAMODB_TABLE", "apresai-podcasts-prod"),
+		S3Bucket:             envOr("S3_BUCKET", ""),
+		CDNBaseURL:           envOr("CDN_BASE_URL", "https://podcasts.apresai.dev"),
+		AWSRegion:            envOr("AWS_REGION", "us-east-1"),
 		MaxTasks:     5,
 		SecretPrefix: envOr("SECRET_PREFIX", "/podcaster/mcp/"),
 	}
@@ -80,7 +82,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	// Create store, storage, task manager
 	store := NewStore(ddbClient, cfg.TableName)
 	storage := NewStorage(s3Client, cfg.S3Bucket, cfg.CDNBaseURL)
-	taskMgr := NewTaskManager(store, storage, cfg.MaxTasks, logger)
+	taskMgr := NewTaskManager(store, storage, cfg.MaxTasks, logger, ctx)
+
 	handlers := NewHandlers(taskMgr, store, logger)
 
 	// Create MCP server
@@ -92,9 +95,10 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 
 	// Register tools
 	tools := ToolDefs()
-	mcpServer.AddTool(tools[0], handlers.HandleGeneratePodcast)
-	mcpServer.AddTool(tools[1], handlers.HandleGetPodcast)
-	mcpServer.AddTool(tools[2], handlers.HandleListPodcasts)
+	mcpServer.AddTool(tools[0], handlers.HandleServerInfo)
+	mcpServer.AddTool(tools[1], handlers.HandleGeneratePodcast)
+	mcpServer.AddTool(tools[2], handlers.HandleGetPodcast)
+	mcpServer.AddTool(tools[3], handlers.HandleListPodcasts)
 
 	return &Server{
 		cfg:      cfg,
@@ -114,8 +118,37 @@ func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.cfg.Port)
 	s.log.Info("Starting MCP server", "addr", addr)
 
+	store := s.handlers.store
+
 	httpServer := server.NewStreamableHTTPServer(s.mcp,
 		server.WithStateLess(true), // AgentCore manages session IDs
+		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				// No auth header — anonymous mode (local dev)
+				return WithAuthResult(ctx, AuthResult{Authenticated: false})
+			}
+
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			if token == authHeader {
+				// No "Bearer " prefix
+				return WithAuthResult(ctx, AuthResult{Authenticated: false, Error: fmt.Errorf("invalid authorization format, expected: Bearer <api-key>")})
+			}
+
+			info, err := store.ValidateAPIKey(ctx, authHeader)
+			if err != nil {
+				s.log.WarnContext(ctx, "API key validation failed", "error", err)
+				return WithAuthResult(ctx, AuthResult{Authenticated: false, Error: err})
+			}
+
+			s.log.InfoContext(ctx, "Authenticated request", "user_id", info.UserID, "key_id", info.KeyID)
+			return WithAuthResult(ctx, AuthResult{
+				Authenticated: true,
+				UserID:        info.UserID,
+				Role:          info.Role,
+				KeyID:         info.KeyID,
+			})
+		}),
 	)
 	return httpServer.Start(addr)
 }

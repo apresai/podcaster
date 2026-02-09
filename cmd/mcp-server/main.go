@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/apresai/podcaster/internal/mcpserver"
 	"github.com/apresai/podcaster/internal/observability"
@@ -39,7 +40,11 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
-		logger.Info("Shutdown signal received")
+		logger.Info("Shutdown signal received, waiting for active tasks...")
+		// Give goroutines up to 8 seconds to clean up (FailJob → DynamoDB)
+		// before AgentCore sends SIGKILL (~10s after SIGTERM).
+		time.Sleep(8 * time.Second)
+		logger.Info("Shutdown complete")
 		os.Exit(0)
 	}()
 

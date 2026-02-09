@@ -17,3 +17,15 @@ func DetachTraceContext(ctx context.Context) context.Context {
 	}
 	return trace.ContextWithRemoteSpanContext(context.Background(), sc)
 }
+
+// DetachTraceContextFrom copies the trace span from src into baseCtx.
+// Use this when you want goroutines to inherit a parent context's cancellation
+// (e.g., SIGTERM) while carrying trace context from a different source (e.g.,
+// an HTTP request context).
+func DetachTraceContextFrom(src, baseCtx context.Context) context.Context {
+	sc := trace.SpanContextFromContext(src)
+	if !sc.IsValid() {
+		return baseCtx
+	}
+	return trace.ContextWithRemoteSpanContext(baseCtx, sc)
+}

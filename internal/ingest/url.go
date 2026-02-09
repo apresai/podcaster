@@ -19,9 +19,15 @@ func (u *URLIngester) Ingest(ctx context.Context, source string) (*Content, erro
 		return nil, fmt.Errorf("invalid URL %s: %w", source, err)
 	}
 
-	// Check URL is reachable with a timeout
+	// Fetch URL with a browser-like User-Agent to avoid being blocked by sites
+	// that reject default Go HTTP client requests (e.g., Wikipedia, Cloudflare-protected sites)
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(source)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not create request for %s: %w", source, err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Podcaster/1.0; +https://podcasts.apresai.dev)")
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch URL %s: %w", source, err)
 	}

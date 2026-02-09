@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type GenerateRequest struct {
 	Voices    int
 	Topic     string
 	Owner     string
+	UserID    string // authenticated user ID (empty for anonymous)
 
 	// Per-request API key overrides (BYOK). Empty = use server defaults.
 	AnthropicAPIKey  string
@@ -42,6 +44,7 @@ type TaskManager struct {
 	store   *Store
 	storage *Storage
 	log     *slog.Logger
+	baseCtx context.Context // cancelled on SIGTERM for graceful shutdown
 
 	mu       sync.Mutex
 	cancels  map[string]context.CancelFunc
@@ -50,7 +53,8 @@ type TaskManager struct {
 }
 
 // NewTaskManager creates a task manager.
-func NewTaskManager(store *Store, storage *Storage, maxTasks int, logger *slog.Logger) *TaskManager {
+// baseCtx should be cancelled on SIGTERM so pipeline goroutines can clean up.
+func NewTaskManager(store *Store, storage *Storage, maxTasks int, logger *slog.Logger, baseCtx context.Context) *TaskManager {
 	if maxTasks <= 0 {
 		maxTasks = 5
 	}
@@ -58,6 +62,7 @@ func NewTaskManager(store *Store, storage *Storage, maxTasks int, logger *slog.L
 		store:    store,
 		storage:  storage,
 		log:      logger,
+		baseCtx:  baseCtx,
 		cancels:  make(map[string]context.CancelFunc),
 		maxTasks: maxTasks,
 	}
@@ -78,9 +83,10 @@ func (tm *TaskManager) StartTask(ctx context.Context, req GenerateRequest) (stri
 	}
 	tm.running++
 
-	// Detach trace context so the goroutine's spans are linked to this HTTP request
-	// but don't inherit its cancellation.
-	taskCtx := observability.DetachTraceContext(ctx)
+	// Derive goroutine context from baseCtx (cancelled on SIGTERM) rather than
+	// the HTTP request context (cancelled when the response is sent).
+	// Carry trace span from the HTTP request for observability linking.
+	taskCtx := observability.DetachTraceContextFrom(ctx, tm.baseCtx)
 	taskCtx, cancel := context.WithCancel(taskCtx)
 	tm.cancels[id] = cancel
 	tm.mu.Unlock()
@@ -115,6 +121,14 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 	defer span.End()
 
 	defer func() {
+		// On shutdown (SIGTERM), mark any in-progress job as failed so it doesn't
+		// appear stuck in "synthesizing" forever.
+		if ctx.Err() != nil {
+			failCtx, failCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer failCancel()
+			tm.store.FailJob(failCtx, id, "server shutdown during processing")
+			tm.log.Info("Marked job as failed due to shutdown", "podcast_id", id)
+		}
 		tm.mu.Lock()
 		delete(tm.cancels, id)
 		tm.running--
@@ -137,6 +151,7 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		}
 
 		if stageChanged {
+			fmt.Fprintf(os.Stderr, "[%s] stage=%s msg=%s pct=%.2f\n", id, evt.Stage, evt.Message, evt.Percent)
 			span.AddEvent("stage_transition",
 				trace.WithAttributes(
 					attribute.String("stage", evt.Message),
@@ -220,17 +235,25 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		Voice3Provider:   ttsProvider,
 		Model:            model,
 		OnProgress:       progressCb,
+		DisableBatch:     true, // Per-segment with rate limiting for AI Studio Gemini TTS 10 RPM limit
 		AnthropicAPIKey:  req.AnthropicAPIKey,
 		GeminiAPIKey:     req.GeminiAPIKey,
 		ElevenLabsAPIKey: req.ElevenLabsAPIKey,
 	}
 
 	// Run the pipeline
-	log.InfoContext(ctx, "Pipeline starting", "model", model, "tts", ttsProvider, "duration", duration)
+	pipelineStart := time.Now()
+	fmt.Fprintf(os.Stderr, "[%s] Pipeline starting: model=%s tts=%s duration=%s batch=%v voices=%d\n",
+		id, model, ttsProvider, duration, !opts.DisableBatch, voices)
+	log.InfoContext(ctx, "Pipeline starting",
+		"model", model, "tts", ttsProvider, "duration", duration,
+		"batch", !opts.DisableBatch, "voices", voices, "input_url", opts.Input)
 	if err := pipeline.Run(ctx, opts); err != nil {
+		elapsed := time.Since(pipelineStart).Round(time.Second)
+		fmt.Fprintf(os.Stderr, "[%s] Pipeline FAILED after %s: %v\n", id, elapsed, err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "pipeline failed")
-		log.ErrorContext(ctx, "Pipeline failed", "error", err)
+		log.ErrorContext(ctx, "Pipeline failed", "error", err, "elapsed", elapsed.String())
 		tm.store.FailJob(ctx, id, err.Error())
 		return
 	}
@@ -280,6 +303,37 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		log.ErrorContext(ctx, "Complete job failed", "error", err)
 	}
 
+	// Record usage metrics if authenticated
+	if req.UserID != "" {
+		inputChars := len(req.InputText)
+		if inputChars == 0 && req.InputURL != "" {
+			inputChars = 5000 // estimate for URL-sourced content
+		}
+
+		// Calculate TTS chars from script segments
+		ttsChars := 0
+		if scriptJSON != "" {
+			var s script.Script
+			if json.Unmarshal([]byte(scriptJSON), &s) == nil {
+				for _, seg := range s.Segments {
+					ttsChars += len(seg.Text)
+				}
+			}
+		}
+
+		// Parse duration to seconds
+		durationSec := parseDurationSec(audioDuration)
+
+		if err := tm.store.RecordUsage(ctx, id, req.UserID, req.Model, req.TTS, inputChars, ttsChars, durationSec); err != nil {
+			log.WarnContext(ctx, "Record usage failed", "error", err)
+		} else {
+			cost := EstimateCost(req.Model, req.TTS, inputChars, ttsChars, durationSec)
+			log.InfoContext(ctx, "Usage recorded", "user_id", req.UserID, "cost_usd", cost)
+		}
+	}
+
+	elapsed := time.Since(pipelineStart).Round(time.Second)
+	fmt.Fprintf(os.Stderr, "[%s] Pipeline COMPLETE in %s: title=%s url=%s size=%.1fMB\n", id, elapsed, title, audioURL, fileSizeMB)
 	span.SetAttributes(
 		attribute.String("title", title),
 		attribute.String("audio_url", audioURL),
@@ -287,6 +341,26 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 	)
 	span.SetStatus(codes.Ok, "complete")
 	log.InfoContext(ctx, "Pipeline complete", "title", title, "audio_url", audioURL)
+}
+
+// parseDurationSec converts a duration string like "12m34s" or "12:34" to seconds.
+func parseDurationSec(d string) int {
+	if d == "" {
+		return 0
+	}
+	// Try Go duration format first
+	if parsed, err := time.ParseDuration(d); err == nil {
+		return int(parsed.Seconds())
+	}
+	// Try MM:SS format
+	parts := strings.SplitN(d, ":", 2)
+	if len(parts) == 2 {
+		var m, s int
+		fmt.Sscanf(parts[0], "%d", &m)
+		fmt.Sscanf(parts[1], "%d", &s)
+		return m*60 + s
+	}
+	return 0
 }
 
 // mapStage maps a pipeline progress stage to a job status.

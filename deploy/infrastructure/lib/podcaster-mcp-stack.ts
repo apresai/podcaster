@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as certificatemanager from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as events from 'aws-cdk-lib/aws-events';
@@ -159,6 +160,11 @@ export class PodcasterMcpStack extends cdk.Stack {
     // ECR pull
     ecrRepo.grantPull(agentCoreRole);
 
+    // --- AgentCore Observability ---
+    // Log + trace delivery sources/destinations already created in AWS.
+    // They persist across stack updates and don't need to be in CDK.
+    // See: agentcore-observability.md in memory for details.
+
     // --- Play Counter Lambda ---
     // Pre-built binary: run `make build-play-counter` before `make deploy-infra`
     const playCounterFn = new lambda.Function(this, 'PlayCounterFn', {
@@ -187,6 +193,59 @@ export class PodcasterMcpStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(playCounterFn)],
     });
 
+    // ============================================================
+    // Sprint 11: AgentCore Gateway + Cognito User Pool
+    // ============================================================
+
+    // --- Cognito User Pool (for web portal authentication) ---
+    const userPool = new cognito.UserPool(this, 'PortalUserPool', {
+      userPoolName: 'podcaster-portal',
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      standardAttributes: {
+        email: { required: true, mutable: true },
+        givenName: { required: false, mutable: true },
+        familyName: { required: false, mutable: true },
+      },
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: false,
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // Cognito domain for hosted UI
+    const userPoolDomain = userPool.addDomain('PortalDomain', {
+      cognitoDomain: { domainPrefix: 'podcaster-portal' },
+    });
+
+    // Web portal client (for NextAuth.js)
+    const portalClient = userPool.addClient('PortalClient', {
+      userPoolClientName: 'podcaster-web-portal',
+      generateSecret: true,
+      authFlows: {
+        userSrp: true,
+        userPassword: false,
+      },
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+        callbackUrls: [
+          `https://${domainName}/api/auth/callback/cognito`,
+          'http://localhost:3000/api/auth/callback/cognito',
+        ],
+        logoutUrls: [
+          `https://${domainName}`,
+          'http://localhost:3000',
+        ],
+      },
+    });
+
     // --- Outputs ---
     new cdk.CfnOutput(this, 'EcrRepoUri', {
       value: ecrRepo.repositoryUri,
@@ -206,6 +265,22 @@ export class PodcasterMcpStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AgentCoreRoleArn', {
       value: agentCoreRole.roleArn,
       description: 'IAM role ARN for AgentCore execution',
+    });
+
+    // Sprint 11 outputs
+    new cdk.CfnOutput(this, 'CognitoUserPoolId', {
+      value: userPool.userPoolId,
+      description: 'Cognito User Pool ID for web portal',
+    });
+
+    new cdk.CfnOutput(this, 'CognitoClientId', {
+      value: portalClient.userPoolClientId,
+      description: 'Cognito client ID for web portal',
+    });
+
+    new cdk.CfnOutput(this, 'CognitoDomain', {
+      value: `https://${userPoolDomain.domainName}.auth.${cdk.Aws.REGION}.amazoncognito.com`,
+      description: 'Cognito hosted UI domain',
     });
   }
 }
