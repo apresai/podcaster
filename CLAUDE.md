@@ -7,7 +7,7 @@ CLI tool that converts written content (URLs, PDFs, text files) into two-host po
 - **Language**: Go
 - **CLI framework**: cobra
 - **Script generation**: Claude API via `anthropic-sdk-go`, or Gemini API via raw HTTP
-- **Text-to-speech**: Gemini TTS (default), ElevenLabs, or Google Cloud TTS
+- **Text-to-speech**: Gemini TTS (default), Gemini TTS via Vertex AI, ElevenLabs, or Google Cloud TTS
 - **Audio assembly**: FFmpeg (concat demuxer)
 - **PDF extraction**: `ledongthuc/pdf`
 - **URL extraction**: `go-shiori/go-readability`
@@ -71,7 +71,7 @@ podcaster generate -i input.txt -o out.mp3 --topic "key findings" --tone technic
 podcaster/
 ├── cmd/
 │   ├── podcaster/main.go        # CLI entry point
-│   ├── mcp-server/main.go       # Remote MCP server entry point
+│   ├── mcp-server/main.go       # Remote MCP server entry point (AgentCore)
 │   └── play-counter/main.go     # CloudFront log → play count Lambda
 ├── internal/
 │   ├── cli/
@@ -145,6 +145,9 @@ Use `/generate-persona` to create new personas for custom voices.
 | `ANTHROPIC_API_KEY` | Claude (script gen) | `--model haiku` or `--model sonnet` |
 | `GEMINI_API_KEY` | Gemini (script gen + TTS) | `--model gemini-*` or `--tts gemini` |
 | `ELEVENLABS_API_KEY` | ElevenLabs (TTS) | `--tts elevenlabs` |
+| `GCP_PROJECT` | GCP project ID | `--tts gemini-vertex` |
+| `GCP_REGION` | GCP region (default: us-central1) | `--tts gemini-vertex` (optional) |
+| ADC / `GOOGLE_APPLICATION_CREDENTIALS` | GCP OAuth2 | `--tts gemini-vertex` |
 
 ## External Dependencies
 
@@ -186,6 +189,17 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 | `sonnet` | `claude-sonnet-4-5-20250929` | Anthropic |
 | `gemini-flash` | `gemini-2.5-flash` | Google |
 | `gemini-pro` | `gemini-2.5-pro` | Google |
+
+## TTS Providers
+
+| Flag value | Endpoint | Auth | Rate Limit | Notes |
+|------------|----------|------|------------|-------|
+| `gemini` (default) | AI Studio (`generativelanguage.googleapis.com`) | API key | 10 RPM, 100 RPD | 7s inter-segment throttle |
+| `gemini-vertex` | Vertex AI (`aiplatform.googleapis.com`) | ADC/OAuth2 | 30,000 RPM | 500ms polite delay; requires `GCP_PROJECT` env var |
+| `elevenlabs` | ElevenLabs API | API key | Varies by plan | |
+| `google` | Cloud TTS gRPC (`texttospeech.googleapis.com`) | ADC/OAuth2 | 150 RPM | Chirp 3 HD voices (different from Gemini voices) |
+
+All Gemini TTS providers (gemini, gemini-vertex) share the same voice names (Charon, Leda, Fenrir, etc.).
 
 ## MCP Server
 
@@ -253,6 +267,80 @@ make smoke-test-local                    # Test local server at localhost:8000
 
 - **Always test AWS features on AWS** — when the feature involves AgentCore, MCP server, or any AWS-deployed service, test against the deployed AgentCore endpoint (not locally) unless explicitly told to test locally.
 - Local testing (`go run ./cmd/mcp-server`) is only for quick iteration on code changes before deploying.
+
+## Debugging AWS Failures
+
+When something fails on AWS (deploys, AgentCore errors, Lambda failures, networking issues, etc.), **always spawn a cloud-architect agent** to investigate the AWS logs first before attempting fixes. The agent should:
+1. Check CloudWatch logs for the relevant service (AgentCore, Lambda, API Gateway, etc.)
+2. Look for error patterns, timing, and root causes
+3. Report findings before any code changes are made
+
+Do not guess at the cause of AWS failures — check the logs. Do not retry the same failing action repeatedly without understanding why it failed.
+
+## Gemini TTS Rate Limits
+
+The current bottleneck for podcast generation is AI Studio's strict TTS rate limits (Paid Tier 1):
+
+**AI Studio API** (`generativelanguage.googleapis.com`) — current endpoint:
+
+| Model | RPM | TPM | RPD |
+|-------|-----|-----|-----|
+| Flash TTS (`gemini-2.5-flash-preview-tts`) | 10 | 10K | 100 |
+| Pro TTS (`gemini-2.5-pro-preview-tts`) | 10 | 10K | 50 |
+
+At 10 RPM, a 60-segment podcast uses 60 of 100 daily requests. You can barely make 1 podcast per day.
+
+**Current mitigation:**
+- `DisableBatch=true` in `tasks.go` — synthesizes one segment at a time
+- 7s throttle between Gemini TTS requests (`pipeline.go` `synthesizeSegments`) to stay under 10 RPM
+- 30 segments at 7s = ~3.5 min for a short podcast, ~7 min for standard
+- Batch mode (`GeminiProvider.batchHttpClient`) is only for CLI/local use (single request, no rate limit concern)
+- Pro TTS has only 50 RPD — monitor via [AI Studio usage dashboard](https://aistudio.google.com/usage)
+- Graceful shutdown: SIGTERM cancels pipeline goroutines → FailJob writes to DynamoDB → prevents stuck "synthesizing" status
+
+**Cloud Text-to-Speech API** (`texttospeech.googleapis.com`) — the upgrade path:
+
+| Model | RPM | Content Limit |
+|-------|-----|---------------|
+| `gemini-2.5-flash-tts` | 150 | 5,000 bytes/request |
+| `gemini-2.5-pro-tts` | 125 | 5,000 bytes/request |
+
+- No documented daily request limit
+- Quotas can be increased via Google Cloud Console
+- 15x higher throughput than AI Studio
+- Auth: Service account / ADC (not API key)
+- Regional endpoints: `us`, `eu`, `northamerica-northeast1`, etc.
+- GA model names (no `-preview` suffix)
+
+## Vertex AI / Cloud TTS Migration Path
+
+Two Vertex AI TTS endpoints are available:
+
+### 1. Cloud Text-to-Speech API
+- Endpoint: `{REGION}-texttospeech.googleapis.com`
+- 150 RPM Flash / 125 RPM Pro (15x AI Studio)
+- Request format: separate `prompt` and `text` fields (max 5K bytes each, 8K combined)
+- Auth: Service account / ADC (not API key)
+- GA model names: `gemini-2.5-flash-tts`, `gemini-2.5-pro-tts` (no `-preview`)
+
+### 2. Vertex AI API
+- Endpoint: `{REGION}-aiplatform.googleapis.com`
+- System limit: 30,000 RPM per model per region
+- Request format: single `contents` field (like AI Studio)
+- Same auth: service account / ADC
+- Supports `temperature` control (0.0-2.0)
+
+### Requirements
+- GCP project with billing enabled (`chadneal-learning-1`)
+- Enable Cloud Text-to-Speech API or Vertex AI API
+- Service account with `roles/aiplatform.user`
+- Store service account JSON in AWS Secrets Manager
+- New TTS provider in `internal/tts/` or modify existing `gemini.go`
+
+### Go SDK options
+- `cloud.google.com/go/vertexai/genai` — Vertex AI SDK
+- `cloud.google.com/go/texttospeech` — Cloud TTS SDK
+- Or raw HTTP (current approach, just change endpoint + auth)
 
 ## Development Notes
 

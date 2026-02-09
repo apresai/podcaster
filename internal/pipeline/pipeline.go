@@ -51,6 +51,11 @@ type Options struct {
 	TTSPitch       float64 // --tts-pitch (Google)
 	OnProgress     progress.Callback
 
+	// DisableBatch forces per-segment TTS instead of batch mode.
+	// Use this when running on infrastructure with network idle timeouts
+	// that can't sustain long-running HTTP requests (e.g., AgentCore).
+	DisableBatch bool
+
 	// Per-request API key overrides (BYOK). Empty = use env vars.
 	AnthropicAPIKey  string
 	GeminiAPIKey     string
@@ -496,7 +501,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		// Check if provider supports batch synthesis (e.g., Gemini multi-speaker)
-		if bp, ok := provider.(tts.BatchProvider); ok {
+		// Batch mode sends all segments in one HTTP request — fast but requires
+		// sustained connections. DisableBatch forces per-segment synthesis.
+		if bp, ok := provider.(tts.BatchProvider); ok && !opts.DisableBatch {
 			result, err := bp.SynthesizeBatch(ctx, s.Segments, voices)
 			if err != nil {
 				logf("ERROR: batch synthesis failed: %v", err)
@@ -508,7 +515,9 @@ func Run(ctx context.Context, opts Options) error {
 
 			// Convert to MP3 if needed, or write directly
 			if result.Format != tts.FormatMP3 {
-				tmpDir, err := os.MkdirTemp(filepath.Join(OutputBaseDir, "tempfiles"), "run-*")
+				tmpParent := filepath.Join(OutputBaseDir, "tempfiles")
+				os.MkdirAll(tmpParent, 0755)
+				tmpDir, err := os.MkdirTemp(tmpParent, "run-*")
 				if err != nil {
 					return &PipelineError{Stage: "tts", Message: "failed to create temp directory", Err: err}
 				}
@@ -534,7 +543,9 @@ func Run(ctx context.Context, opts Options) error {
 			logf("Assembly skipped (batch provider)")
 		} else {
 			// Single provider, per-segment synthesis
-			tmpDir, err := os.MkdirTemp(filepath.Join(OutputBaseDir, "tempfiles"), "run-*")
+			tmpParent := filepath.Join(OutputBaseDir, "tempfiles")
+			os.MkdirAll(tmpParent, 0755)
+			tmpDir, err := os.MkdirTemp(tmpParent, "run-*")
 			if err != nil {
 				return &PipelineError{Stage: "tts", Message: "failed to create temp directory", Err: err}
 			}
@@ -576,7 +587,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	} else {
 		// Mixed providers — per-segment with routing
-		tmpDir, err := os.MkdirTemp(filepath.Join(OutputBaseDir, "tempfiles"), "run-*")
+		tmpParent := filepath.Join(OutputBaseDir, "tempfiles")
+		os.MkdirAll(tmpParent, 0755)
+		tmpDir, err := os.MkdirTemp(tmpParent, "run-*")
 		if err != nil {
 			return &PipelineError{Stage: "tts", Message: "failed to create temp directory", Err: err}
 		}
@@ -665,6 +678,25 @@ func synthesizeSegments(ctx context.Context, provider tts.Provider, segments []s
 			return nil, ctx.Err()
 		}
 
+		// Throttle TTS requests to avoid rate limiting.
+		// Gemini AI Studio: 10 RPM limit → 1 req per 7s (with margin).
+		// Gemini Vertex AI: 30K RPM → 500ms (polite delay only).
+		// Others: 3s delay is sufficient.
+		if i > 0 {
+			delay := 3 * time.Second
+			switch provider.Name() {
+			case "gemini":
+				delay = 7 * time.Second // 10 RPM = 6s; use 7s for margin
+			case "gemini-vertex":
+				delay = 500 * time.Millisecond // 30K RPM; minimal polite delay
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
 		voice := tts.VoiceForSpeaker(seg.Speaker, voices)
 
 		logf("  Synthesizing segment %d/%d (%s, %d chars)", i+1, total, seg.Speaker, len(seg.Text))
@@ -682,14 +714,24 @@ func synthesizeSegments(ctx context.Context, provider tts.Provider, segments []s
 		}
 
 		var result tts.AudioResult
+		segStart := time.Now()
 		err := tts.WithRetry(ctx, func() error {
+			// Per-segment timeout: if a single TTS request hangs (e.g., due to
+			// network proxy dropping idle connections), fail fast and retry.
+			reqCtx, reqCancel := context.WithTimeout(ctx, 60*time.Second)
+			defer reqCancel()
 			var synthErr error
-			result, synthErr = provider.Synthesize(ctx, seg.Text, voice)
+			result, synthErr = provider.Synthesize(reqCtx, seg.Text, voice)
+			if synthErr != nil {
+				logf("  Segment %d/%d attempt failed (elapsed %s): %v", i+1, total, time.Since(segStart).Round(time.Millisecond), synthErr)
+			}
 			return synthErr
 		})
 		if err != nil {
+			logf("  Segment %d/%d FAILED after %s: %v", i+1, total, time.Since(segStart).Round(time.Millisecond), err)
 			return nil, fmt.Errorf("segment %d (%s): %w", i+1, seg.Speaker, err)
 		}
+		logf("  Segment %d/%d OK (%s, %d bytes, %s)", i+1, total, seg.Speaker, len(result.Data), time.Since(segStart).Round(time.Millisecond))
 
 		// If provider returns non-MP3, convert via FFmpeg
 		filename := filepath.Join(tmpDir, fmt.Sprintf("segment_%03d.mp3", i))
@@ -757,8 +799,10 @@ func synthesizeSegmentsMixed(ctx context.Context, ps *tts.ProviderSet, segments 
 
 		var result tts.AudioResult
 		err = tts.WithRetry(ctx, func() error {
+			reqCtx, reqCancel := context.WithTimeout(ctx, 60*time.Second)
+			defer reqCancel()
 			var synthErr error
-			result, synthErr = provider.Synthesize(ctx, seg.Text, voice)
+			result, synthErr = provider.Synthesize(reqCtx, seg.Text, voice)
 			return synthErr
 		})
 		if err != nil {

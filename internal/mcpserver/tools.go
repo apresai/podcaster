@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
+	"os"
+	"runtime"
+	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel"
@@ -18,8 +23,16 @@ var tracer = otel.Tracer("podcaster-mcp")
 func ToolDefs() []mcp.Tool {
 	return []mcp.Tool{
 		{
+			Name:        "server_info",
+			Description: "Returns server runtime information and diagnostics. Useful for debugging.",
+			InputSchema: mcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{},
+			},
+		},
+		{
 			Name:        "generate_podcast",
-			Description: "Generate a podcast episode from a URL or text input. Starts an async task and returns a task ID. Use get_podcast to check progress.",
+			Description: "Generate a podcast episode from a URL or text input. Starts async pipeline (content ingestion, script generation, text-to-speech synthesis, audio assembly) and returns a podcast_id immediately. Use get_podcast to poll for progress and the completed result with an audio_url link to the MP3 file. Generation takes 3-8 minutes depending on duration setting. Always poll get_podcast until status is 'complete', then show the audio_url link to the user.",
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -38,7 +51,7 @@ func ToolDefs() []mcp.Tool {
 					},
 					"tts": map[string]any{
 						"type":        "string",
-						"description": "Text-to-speech provider: gemini, elevenlabs, google",
+						"description": "Text-to-speech provider: gemini, gemini-vertex (Vertex AI, higher rate limits), elevenlabs, google",
 						"default":     "gemini",
 					},
 					"tone": map[string]any{
@@ -132,6 +145,41 @@ func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRe
 	ctx, span := tracer.Start(ctx, "tool.generate_podcast")
 	defer span.End()
 
+	// Resolve user identity from either:
+	// 1. HTTP auth context (direct access with Authorization header)
+	// 2. Proxy-injected _user_id/_key_id in tool arguments (Lambda proxy flow)
+	auth := AuthFromContext(ctx)
+	userID := ""
+	keyID := ""
+
+	if auth.Authenticated {
+		userID = auth.UserID
+		keyID = auth.KeyID
+	} else {
+		// Check for proxy-injected auth in arguments
+		args := req.GetArguments()
+		if uid, ok := args["_user_id"].(string); ok && uid != "" {
+			userID = uid
+		}
+		if kid, ok := args["_key_id"].(string); ok && kid != "" {
+			keyID = kid
+		}
+	}
+
+	// Require auth when running on AWS (SECRET_PREFIX is set)
+	if userID == "" && os.Getenv("SECRET_PREFIX") != "" {
+		if auth.Error != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Authentication failed: %v. Provide your API key as: Authorization: Bearer <your-api-key>. Get an API key at https://podcasts.apresai.dev", auth.Error)), nil
+		}
+		return mcp.NewToolResultError("Authentication required. Provide your API key as: Authorization: Bearer <your-api-key>. Get an API key at https://podcasts.apresai.dev"), nil
+	}
+
+	_ = keyID // used for logging if needed
+	owner := "anonymous"
+	if userID != "" {
+		owner = userID
+	}
+
 	genReq := GenerateRequest{
 		InputURL:         mcp.ParseString(req, "input_url", ""),
 		InputText:        mcp.ParseString(req, "input_text", ""),
@@ -145,7 +193,8 @@ func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRe
 		AnthropicAPIKey:  mcp.ParseString(req, "anthropic_api_key", ""),
 		GeminiAPIKey:     mcp.ParseString(req, "gemini_api_key", ""),
 		ElevenLabsAPIKey: mcp.ParseString(req, "elevenlabs_api_key", ""),
-		Owner:            "mcp-server",
+		Owner:            owner,
+		UserID:           userID,
 	}
 
 	span.SetAttributes(
@@ -162,20 +211,22 @@ func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRe
 		return mcp.NewToolResultError("either input_url or input_text is required"), nil
 	}
 
+	h.log.InfoContext(ctx, "Starting podcast generation", "model", genReq.Model, "tts", genReq.TTS)
+
 	id, err := h.tasks.StartTask(ctx, genReq)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "start task failed")
-		return mcp.NewToolResultError(fmt.Sprintf("failed to start task: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to start generation: %v", err)), nil
 	}
 
 	span.SetAttributes(attribute.String("podcast_id", id))
-	h.log.InfoContext(ctx, "Podcast generation started", "podcast_id", id, "model", genReq.Model, "tts", genReq.TTS)
+	h.log.InfoContext(ctx, "Podcast generation started", "podcast_id", id)
 
 	result := map[string]any{
 		"podcast_id": id,
 		"status":     "submitted",
-		"message":    "Podcast generation started. Use get_podcast with this podcast_id to check progress.",
+		"message":    "Podcast generation started. Use get_podcast to check progress.",
 	}
 	return jsonResult(result)
 }
@@ -298,6 +349,52 @@ func (h *Handlers) HandleListPodcasts(ctx context.Context, req mcp.CallToolReque
 		result["next_cursor"] = nextCursor
 	}
 
+	return jsonResult(result)
+}
+
+// HandleServerInfo returns runtime diagnostics.
+func (h *Handlers) HandleServerInfo(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Collect OTEL-related env vars (redact sensitive values)
+	otelVars := map[string]string{}
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		if strings.HasPrefix(key, "OTEL_") || strings.HasPrefix(key, "AWS_") ||
+			key == "SECRET_PREFIX" ||
+			key == "S3_BUCKET" || key == "DYNAMODB_TABLE" ||
+			key == "CDN_BASE_URL" || key == "DISABLE_ADOT_OBSERVABILITY" ||
+			key == "HOME" || key == "PORT" || key == "PATH" {
+			otelVars[key] = parts[1]
+		}
+	}
+
+	// Check local OTEL collector connectivity
+	otelPorts := map[string]string{
+		"grpc_4317": "localhost:4317",
+		"http_4318": "localhost:4318",
+	}
+	portStatus := map[string]string{}
+	for name, addr := range otelPorts {
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err != nil {
+			portStatus[name] = fmt.Sprintf("CLOSED (%v)", err)
+		} else {
+			conn.Close()
+			portStatus[name] = "OPEN"
+		}
+	}
+
+	result := map[string]any{
+		"go_version":    runtime.Version(),
+		"arch":          runtime.GOARCH,
+		"os":            runtime.GOOS,
+		"num_goroutine": runtime.NumGoroutine(),
+		"env_vars":      otelVars,
+		"otel_ports":    portStatus,
+	}
 	return jsonResult(result)
 }
 

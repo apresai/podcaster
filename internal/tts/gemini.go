@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/apresai/podcaster/internal/script"
@@ -19,7 +22,7 @@ const (
 	geminiDefaultVoice2 = "Leda"
 	geminiDefaultVoice3 = "Fenrir"
 
-	geminiDefaultTTSModel = "gemini-2.5-pro-preview-tts"
+	geminiDefaultTTSModel = "gemini-2.5-flash-preview-tts"
 	geminiEndpointBase    = "https://generativelanguage.googleapis.com/v1beta/models/"
 )
 
@@ -88,10 +91,11 @@ type geminiInlineData struct {
 
 // GeminiProvider implements both Provider and BatchProvider.
 type GeminiProvider struct {
-	voices     VoiceMap
-	apiKey     string
-	httpClient *http.Client
-	model      string
+	voices          VoiceMap
+	apiKey          string
+	httpClient      *http.Client
+	batchHttpClient *http.Client // longer timeouts for batch synthesis
+	model           string
 }
 
 func NewGeminiProvider(voice1, voice2, voice3 string, cfg ProviderConfig) *GeminiProvider {
@@ -124,9 +128,35 @@ func NewGeminiProvider(voice1, voice2, voice3 string, cfg ProviderConfig) *Gemin
 			Host2: Voice{ID: v2, Name: v2},
 			Host3: Voice{ID: v3, Name: v3},
 		},
-		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 300 * time.Second},
-		model:      model,
+		apiKey: apiKey,
+		httpClient: &http.Client{
+			Timeout: 90 * time.Second,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout: 10 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 70 * time.Second,
+				IdleConnTimeout:       10 * time.Second,
+				DisableKeepAlives:     true,
+			},
+		},
+		// Batch synthesis: 30+ segments take longer to process server-side.
+		// Gemini TTS RPM limit is 10, so batch (1 request) is preferred over
+		// per-segment (30 requests) to avoid rate limiting.
+		batchHttpClient: &http.Client{
+			Timeout: 5 * time.Minute,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout: 10 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 4 * time.Minute,
+				IdleConnTimeout:       10 * time.Second,
+				DisableKeepAlives:     true,
+			},
+		},
+		model: model,
 	}
 }
 
@@ -161,7 +191,7 @@ func (p *GeminiProvider) Synthesize(ctx context.Context, text string, voice Voic
 		},
 	}
 
-	data, err := p.doRequest(ctx, req)
+	data, err := p.doRequest(ctx, req, p.httpClient)
 	if err != nil {
 		return AudioResult{}, err
 	}
@@ -195,6 +225,10 @@ func (p *GeminiProvider) SynthesizeBatch(ctx context.Context, segments []script.
 		})
 	}
 
+	fmt.Fprintf(os.Stderr, "[gemini-batch] Starting batch TTS: segments=%d speakers=%d chars=%d model=%s\n",
+		len(segments), len(speakerConfigs), len(dialogue), p.model)
+	start := time.Now()
+
 	req := geminiRequest{
 		Contents: []geminiContent{
 			{Parts: []geminiPart{{Text: dialogue}}},
@@ -209,21 +243,25 @@ func (p *GeminiProvider) SynthesizeBatch(ctx context.Context, segments []script.
 		},
 	}
 
-	data, err := p.doRequest(ctx, req)
+	data, err := p.doRequest(ctx, req, p.batchHttpClient)
+	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[gemini-batch] FAILED after %s: %v\n", elapsed, err)
 		return AudioResult{}, err
 	}
 
+	fmt.Fprintf(os.Stderr, "[gemini-batch] SUCCESS in %s: audio_bytes=%d\n", elapsed, len(data))
 	return AudioResult{Data: data, Format: FormatPCM}, nil
 }
 
-func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest) ([]byte, error) {
+func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest, client *http.Client) ([]byte, error) {
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal Gemini request: %w", err)
 	}
 
 	url := p.endpoint() + "?key=" + p.apiKey
+	reqSize := len(bodyBytes)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
@@ -232,23 +270,54 @@ func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest) (
 
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := p.httpClient.Do(req)
+	fmt.Fprintf(os.Stderr, "[gemini] POST %s request_bytes=%d timeout=%s\n", p.model, reqSize, client.Timeout)
+	start := time.Now()
+
+	res, err := client.Do(req)
+	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
-		return nil, fmt.Errorf("send Gemini request: %w", err)
+		fmt.Fprintf(os.Stderr, "[gemini] HTTP error after %s: %v\n", elapsed, err)
+		return nil, &RetryableError{StatusCode: 0, Body: fmt.Sprintf("network error after %s: %v", elapsed, err)}
 	}
 	defer res.Body.Close()
+
+	fmt.Fprintf(os.Stderr, "[gemini] Response status=%d after %s\n", res.StatusCode, elapsed)
 
 	if res.StatusCode == http.StatusTooManyRequests ||
 		res.StatusCode >= http.StatusInternalServerError {
 		errBody, _ := io.ReadAll(res.Body)
+		bodyStr := string(errBody)
+		fmt.Fprintf(os.Stderr, "[gemini] Retryable error %d: %s\n", res.StatusCode, bodyStr[:min(200, len(bodyStr))])
+
+		// On 429, check if this is a daily quota exhaustion (non-retryable)
+		if res.StatusCode == http.StatusTooManyRequests {
+			bodyLower := strings.ToLower(bodyStr)
+			if strings.Contains(bodyLower, "resource_exhausted") &&
+				(strings.Contains(bodyLower, "per day") || strings.Contains(bodyLower, "per_day") || strings.Contains(bodyLower, "rpd")) {
+				fmt.Fprintf(os.Stderr, "[gemini] Daily quota exhausted (RPD limit reached)\n")
+				return nil, fmt.Errorf("Gemini TTS daily quota exhausted (RPD limit). Try again tomorrow or switch to --tts elevenlabs or --tts gemini-vertex")
+			}
+		}
+
+		// Parse Retry-After header (Gemini returns seconds as integer)
+		var retryAfter time.Duration
+		if ra := res.Header.Get("Retry-After"); ra != "" {
+			if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
+				retryAfter = time.Duration(secs) * time.Second
+				fmt.Fprintf(os.Stderr, "[gemini] Rate limited (429), Retry-After: %s\n", retryAfter)
+			}
+		}
+
 		return nil, &RetryableError{
 			StatusCode: res.StatusCode,
-			Body:       string(errBody),
+			Body:       bodyStr,
+			RetryAfter: retryAfter,
 		}
 	}
 
 	if res.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(res.Body)
+		fmt.Fprintf(os.Stderr, "[gemini] API error %d: %s\n", res.StatusCode, string(errBody)[:min(200, len(errBody))])
 		return nil, fmt.Errorf("Gemini API error (status %d): %s", res.StatusCode, string(errBody))
 	}
 
@@ -256,6 +325,8 @@ func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("read Gemini response: %w", err)
 	}
+
+	fmt.Fprintf(os.Stderr, "[gemini] Response body read: %d bytes in %s\n", len(respBody), time.Since(start).Round(time.Millisecond))
 
 	var resp geminiResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
@@ -274,6 +345,7 @@ func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest) (
 		return nil, fmt.Errorf("decode Gemini audio base64: %w", err)
 	}
 
+	fmt.Fprintf(os.Stderr, "[gemini] Audio decoded: %d bytes (base64: %d)\n", len(audioBytes), len(audioB64))
 	return audioBytes, nil
 }
 

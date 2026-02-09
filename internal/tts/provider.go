@@ -2,7 +2,9 @@ package tts
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -71,7 +73,7 @@ func AvailableVoices(providerName string) ([]VoiceInfo, error) {
 		return elevenLabsAvailableVoices(), nil
 	case "google":
 		return googleAvailableVoices(), nil
-	case "gemini":
+	case "gemini", "gemini-vertex":
 		return geminiAvailableVoices(), nil
 	default:
 		return nil, fmt.Errorf("unknown TTS provider %q", providerName)
@@ -80,23 +82,41 @@ func AvailableVoices(providerName string) ([]VoiceInfo, error) {
 
 // Retry constants shared by all providers.
 const (
-	defaultMaxAttempts    = 3
-	defaultInitialBackoff = 1 * time.Second
+	defaultMaxAttempts    = 5
+	defaultInitialBackoff = 2 * time.Second
 	defaultBackoffMulti   = 2
-	defaultMaxBackoff     = 10 * time.Second
+	defaultMaxBackoff     = 30 * time.Second
 )
 
 // RetryableError signals that the operation can be retried.
 type RetryableError struct {
 	StatusCode int
 	Body       string
+	RetryAfter time.Duration // Parsed from Retry-After header (0 = not set)
 }
 
 func (e *RetryableError) Error() string {
 	return fmt.Sprintf("API error (status %d): %s", e.StatusCode, e.Body)
 }
 
-// WithRetry executes fn with exponential backoff on RetryableError.
+// isRetryable checks if an error should be retried.
+// Retryable: RetryableError (429/5xx), timeout errors, deadline exceeded
+// (but only if the parent context is still valid — a cancelled parent means shutdown).
+func isRetryable(ctx context.Context, err error) bool {
+	if _, ok := err.(*RetryableError); ok {
+		return true
+	}
+	// Retry on timeout/deadline errors only if the parent context is still alive.
+	// This handles per-segment context timeouts without retrying on shutdown.
+	if ctx.Err() == nil && (os.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded)) {
+		return true
+	}
+	return false
+}
+
+// WithRetry executes fn with exponential backoff on retryable errors.
+// When the error includes a Retry-After duration (from HTTP headers),
+// the wait time is max(retryAfter, backoff) to respect server guidance.
 func WithRetry(ctx context.Context, fn func() error) error {
 	var lastErr error
 	backoff := defaultInitialBackoff
@@ -104,17 +124,25 @@ func WithRetry(ctx context.Context, fn func() error) error {
 	for attempt := 1; attempt <= defaultMaxAttempts; attempt++ {
 		if err := fn(); err == nil {
 			return nil
-		} else if _, ok := err.(*RetryableError); !ok {
+		} else if !isRetryable(ctx, err) {
 			return err
 		} else {
 			lastErr = err
 		}
 
 		if attempt < defaultMaxAttempts {
+			wait := backoff
+			if re, ok := lastErr.(*RetryableError); ok && re.RetryAfter > 0 {
+				if re.RetryAfter > wait {
+					wait = re.RetryAfter
+				}
+				fmt.Fprintf(os.Stderr, "[retry] 429 with Retry-After: %s, waiting %s (attempt %d/%d)\n",
+					re.RetryAfter, wait, attempt, defaultMaxAttempts)
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(backoff):
+			case <-time.After(wait):
 			}
 			backoff *= time.Duration(defaultBackoffMulti)
 			if backoff > defaultMaxBackoff {
@@ -146,6 +174,10 @@ var validModels = map[string]map[string]bool{
 	"gemini": {
 		"gemini-2.5-pro-preview-tts":   true,
 		"gemini-2.5-flash-preview-tts": true,
+	},
+	"gemini-vertex": {
+		"gemini-2.5-flash-tts": true,
+		"gemini-2.5-pro-tts":   true,
 	},
 }
 
@@ -180,8 +212,10 @@ func NewProvider(name string, voice1, voice2, voice3 string, cfg ProviderConfig)
 		return NewGoogleProvider(voice1, voice2, voice3, cfg)
 	case "gemini":
 		return NewGeminiProvider(voice1, voice2, voice3, cfg), nil
+	case "gemini-vertex":
+		return NewVertexProvider(voice1, voice2, voice3, cfg)
 	default:
-		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, or gemini", name)
+		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, gemini, or gemini-vertex", name)
 	}
 }
 
@@ -192,7 +226,7 @@ func ParseVoiceSpec(spec string) (provider, voiceID string) {
 		prefix := spec[:i]
 		// Only treat as provider prefix if it's a known provider name
 		switch prefix {
-		case "elevenlabs", "gemini", "google":
+		case "elevenlabs", "gemini", "gemini-vertex", "google":
 			return prefix, spec[i+1:]
 		}
 	}
