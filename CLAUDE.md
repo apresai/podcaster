@@ -7,7 +7,7 @@ CLI tool that converts written content (URLs, PDFs, text files) into two-host po
 - **Language**: Go
 - **CLI framework**: cobra
 - **Script generation**: Claude API via `anthropic-sdk-go`, or Gemini API via raw HTTP
-- **Text-to-speech**: Gemini TTS (default), Gemini TTS via Vertex AI, ElevenLabs, or Google Cloud TTS
+- **Text-to-speech**: Gemini TTS (default), Vertex AI Express (API key), Vertex AI (ADC), ElevenLabs, or Google Cloud TTS
 - **Audio assembly**: FFmpeg (concat demuxer)
 - **PDF extraction**: `ledongthuc/pdf`
 - **URL extraction**: `go-shiori/go-readability`
@@ -96,7 +96,9 @@ podcaster/
 │   │   ├── provider.go          # Interface + factory + retry + cross-provider mixing
 │   │   ├── tts.go               # Voice selection helper
 │   │   ├── elevenlabs.go        # ElevenLabs client
-│   │   ├── gemini.go            # Gemini multi-speaker TTS
+│   │   ├── express.go           # Vertex AI Express (API key auth)
+│   │   ├── gemini.go            # Gemini multi-speaker TTS (AI Studio)
+│   │   ├── vertex.go            # Vertex AI TTS (ADC/OAuth2 auth)
 │   │   └── google.go            # Google Cloud TTS (Chirp 3 HD)
 │   ├── mcpserver/               # Remote MCP server (AgentCore)
 │   │   ├── server.go            # Server setup — AWS config, Secrets Manager
@@ -144,6 +146,7 @@ Use `/generate-persona` to create new personas for custom voices.
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Claude (script gen) | `--model haiku` or `--model sonnet` |
 | `GEMINI_API_KEY` | Gemini (script gen + TTS) | `--model gemini-*` or `--tts gemini` |
+| `VERTEX_AI_API_KEY` | Vertex AI Express (TTS) | `--tts vertex-express` (falls back to `GEMINI_API_KEY`) |
 | `ELEVENLABS_API_KEY` | ElevenLabs (TTS) | `--tts elevenlabs` |
 | `GCP_PROJECT` | GCP project ID | `--tts gemini-vertex` |
 | `GCP_REGION` | GCP region (default: us-central1) | `--tts gemini-vertex` (optional) |
@@ -194,12 +197,15 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 
 | Flag value | Endpoint | Auth | Rate Limit | Notes |
 |------------|----------|------|------------|-------|
-| `gemini` (default) | AI Studio (`generativelanguage.googleapis.com`) | API key | 10 RPM, 100 RPD | 7s inter-segment throttle |
-| `gemini-vertex` | Vertex AI (`aiplatform.googleapis.com`) | ADC/OAuth2 | 30,000 RPM | 500ms polite delay; requires `GCP_PROJECT` env var |
+| `gemini` (default) | AI Studio (`generativelanguage.googleapis.com`) | API key (`GEMINI_API_KEY`) | 10 RPM, 100 RPD | 7s inter-segment throttle |
+| `vertex-express` | Vertex AI Express (`aiplatform.googleapis.com`) | API key (`VERTEX_AI_API_KEY`) | TBD (higher than AI Studio) | GA model names, no `-preview`; recommended for testing |
+| `gemini-vertex` | Vertex AI (`{region}-aiplatform.googleapis.com`) | ADC/OAuth2 | 30,000 RPM | 500ms polite delay; requires `GCP_PROJECT` env var |
 | `elevenlabs` | ElevenLabs API | API key | Varies by plan | |
 | `google` | Cloud TTS gRPC (`texttospeech.googleapis.com`) | ADC/OAuth2 | 150 RPM | Chirp 3 HD voices (different from Gemini voices) |
 
-All Gemini TTS providers (gemini, gemini-vertex) share the same voice names (Charon, Leda, Fenrir, etc.).
+All Gemini TTS providers (gemini, vertex-express, gemini-vertex) share the same voice names (Charon, Leda, Fenrir, etc.).
+
+**vertex-express vs gemini**: Both use API key auth. `vertex-express` hits the Vertex AI endpoint (`aiplatform.googleapis.com`) with GA model names and requires `"role": "user"` in the request contents. It uses `VERTEX_AI_API_KEY` (Google Cloud API key for Vertex AI), falling back to `GEMINI_API_KEY`. Created to test whether Vertex AI express mode has higher daily quotas than AI Studio.
 
 ## MCP Server
 
@@ -314,28 +320,36 @@ At 10 RPM, a 60-segment podcast uses 60 of 100 daily requests. You can barely ma
 
 ## Vertex AI / Cloud TTS Migration Path
 
-Two Vertex AI TTS endpoints are available:
+Three Vertex AI TTS endpoints are available:
 
-### 1. Cloud Text-to-Speech API
+### 1. Vertex AI Express (implemented as `vertex-express`)
+- Endpoint: `aiplatform.googleapis.com` (no region prefix)
+- Auth: Google Cloud API key (`VERTEX_AI_API_KEY`) — no service account needed
+- Request format: single `contents` field with `"role": "user"` (required, unlike AI Studio)
+- GA model names: `gemini-2.5-flash-tts`, `gemini-2.5-pro-tts` (no `-preview`)
+- Rate limits TBD — expected higher daily quotas than AI Studio
+- Implementation: `internal/tts/express.go`
+
+### 2. Cloud Text-to-Speech API
 - Endpoint: `{REGION}-texttospeech.googleapis.com`
 - 150 RPM Flash / 125 RPM Pro (15x AI Studio)
 - Request format: separate `prompt` and `text` fields (max 5K bytes each, 8K combined)
 - Auth: Service account / ADC (not API key)
 - GA model names: `gemini-2.5-flash-tts`, `gemini-2.5-pro-tts` (no `-preview`)
 
-### 2. Vertex AI API
+### 3. Vertex AI API (implemented as `gemini-vertex`)
 - Endpoint: `{REGION}-aiplatform.googleapis.com`
 - System limit: 30,000 RPM per model per region
 - Request format: single `contents` field (like AI Studio)
-- Same auth: service account / ADC
+- Auth: service account / ADC
 - Supports `temperature` control (0.0-2.0)
+- Implementation: `internal/tts/vertex.go`
 
-### Requirements
+### Requirements for ADC-based providers (gemini-vertex, google)
 - GCP project with billing enabled (`chadneal-learning-1`)
 - Enable Cloud Text-to-Speech API or Vertex AI API
 - Service account with `roles/aiplatform.user`
 - Store service account JSON in AWS Secrets Manager
-- New TTS provider in `internal/tts/` or modify existing `gemini.go`
 
 ### Go SDK options
 - `cloud.google.com/go/vertexai/genai` — Vertex AI SDK
