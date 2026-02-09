@@ -146,7 +146,7 @@ Use `/generate-persona` to create new personas for custom voices.
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Claude (script gen) | `--model haiku` or `--model sonnet` |
 | `GEMINI_API_KEY` | Gemini (script gen + TTS) | `--model gemini-*` or `--tts gemini` |
-| `VERTEX_AI_API_KEY` | Vertex AI Express (TTS) | `--tts vertex-express` (falls back to `GEMINI_API_KEY`) |
+| `VERTEX_AI_API_KEY` | Vertex AI Express (TTS) | `--tts vertex-express` |
 | `ELEVENLABS_API_KEY` | ElevenLabs (TTS) | `--tts elevenlabs` |
 | `GCP_PROJECT` | GCP project ID | `--tts gemini-vertex` |
 | `GCP_REGION` | GCP region (default: us-central1) | `--tts gemini-vertex` (optional) |
@@ -205,7 +205,7 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 
 All Gemini TTS providers (gemini, vertex-express, gemini-vertex) share the same voice names (Charon, Leda, Fenrir, etc.).
 
-**vertex-express vs gemini**: Both use API key auth. `vertex-express` hits the Vertex AI endpoint (`aiplatform.googleapis.com`) with GA model names and requires `"role": "user"` in the request contents. It uses `VERTEX_AI_API_KEY` (Google Cloud API key for Vertex AI), falling back to `GEMINI_API_KEY`. Created to test whether Vertex AI express mode has higher daily quotas than AI Studio.
+**vertex-express vs gemini**: Both use API key auth. `vertex-express` hits the Vertex AI endpoint (`aiplatform.googleapis.com`) with GA model names and requires `"role": "user"` in the request contents. It uses `VERTEX_AI_API_KEY` (a Google Cloud API key for Vertex AI, not an AI Studio key). Created to test whether Vertex AI express mode has higher daily quotas than AI Studio.
 
 ## MCP Server
 
