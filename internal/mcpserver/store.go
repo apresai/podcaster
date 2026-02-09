@@ -53,6 +53,13 @@ type PodcastItem struct {
 	PlayCount       int     `dynamodbav:"playCount,omitempty"`
 	ScriptJSON      string  `dynamodbav:"scriptJson,omitempty"`
 	CreatedAt       string  `dynamodbav:"createdAt"`
+
+	// Usage tracking fields (set after pipeline completion)
+	UserID           string  `dynamodbav:"userId,omitempty"`
+	InputCharCount   int     `dynamodbav:"inputCharCount,omitempty"`
+	OutputDurationSec int    `dynamodbav:"outputDurationSec,omitempty"`
+	TTSCharCount     int     `dynamodbav:"ttsCharCount,omitempty"`
+	EstimatedCostUSD float64 `dynamodbav:"estimatedCostUSD,omitempty"`
 }
 
 // Store handles DynamoDB operations for podcast jobs.

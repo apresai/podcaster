@@ -15,10 +15,26 @@ CLI tool that converts written content (URLs, PDFs, text files) into two-host po
 ## Commands
 
 ```bash
-make build       # Build binary to ./bin/podcaster
-make install     # Build and install to $GOPATH/bin
-make clean       # Remove build artifacts
-make dev         # Build and run with sample input
+# CLI
+make build                   # Build binary to ./podcaster
+make install                 # Build and install to $GOPATH/bin
+make clean                   # Remove build artifacts
+make dev                     # Build and run with sample input
+
+# Deploy (full pipeline)
+make deploy                  # clean → build → CDK deploy → docker push → AgentCore update → verify
+make deploy-infra            # CDK deploy only (ECR, CloudFront, Lambda, IAM)
+make docker-push             # Build + push ARM64 container to ECR
+make force-update-agentcore  # Force all AgentCore runtimes to re-pull container
+make verify-deploy           # Poll AgentCore runtime until READY (3-min timeout)
+
+# Testing
+make smoke-test              # Quick MCP ping test against deployed AgentCore server
+make smoke-test-local        # Quick MCP ping test against local server (localhost:8000)
+
+# First-time setup
+make deploy-agentcore        # Register new AgentCore runtime (one-time)
+make create-secrets          # Store API keys in Secrets Manager
 ```
 
 ## Running
@@ -53,9 +69,15 @@ podcaster generate -i input.txt -o out.mp3 --topic "key findings" --tone technic
 
 ```
 podcaster/
-├── cmd/podcaster/main.go        # Entry point
+├── cmd/
+│   ├── podcaster/main.go        # CLI entry point
+│   ├── mcp-server/main.go       # Remote MCP server entry point
+│   └── play-counter/main.go     # CloudFront log → play count Lambda
 ├── internal/
-│   ├── cli/root.go              # Cobra command definitions
+│   ├── cli/
+│   │   ├── root.go              # Cobra command definitions + flags
+│   │   ├── interactive.go       # TUI interactive setup wizard
+│   │   └── publish.go           # MCP publish command
 │   ├── pipeline/pipeline.go     # Orchestrator — runs stages in sequence
 │   ├── ingest/                  # Content extraction (URL, PDF, text)
 │   │   ├── ingest.go            # Interface + source detection
@@ -67,16 +89,34 @@ podcaster/
 │   │   ├── claude.go            # Claude API client (haiku/sonnet)
 │   │   ├── gemini.go            # Gemini API client (flash/pro)
 │   │   ├── personas.go          # Persona type + default host personalities
-│   │   └── prompt.go            # Dynamic prompt builder from personas
+│   │   ├── prompt.go            # Dynamic prompt builder from personas
+│   │   ├── format.go            # Show format definitions (8 formats)
+│   │   └── review.go            # Script refinement (heuristic + LLM review)
 │   ├── tts/                     # Text-to-speech (multi-provider)
-│   │   ├── provider.go          # Interface + factory + retry
+│   │   ├── provider.go          # Interface + factory + retry + cross-provider mixing
 │   │   ├── tts.go               # Voice selection helper
 │   │   ├── elevenlabs.go        # ElevenLabs client
 │   │   ├── gemini.go            # Gemini multi-speaker TTS
 │   │   └── google.go            # Google Cloud TTS (Chirp 3 HD)
+│   ├── mcpserver/               # Remote MCP server (AgentCore)
+│   │   ├── server.go            # Server setup — AWS config, Secrets Manager
+│   │   ├── store.go             # DynamoDB CRUD for podcast jobs
+│   │   ├── storage.go           # S3 upload for MP3 files
+│   │   ├── tasks.go             # Task goroutine lifecycle + progress
+│   │   └── tools.go             # MCP tool definitions + handlers
+│   ├── observability/           # Telemetry
+│   │   ├── tracing.go           # OpenTelemetry tracing setup
+│   │   ├── logging.go           # Structured logging
+│   │   └── context.go           # Context helpers
+│   ├── progress/                # Progress reporting
+│   │   ├── progress.go          # Stage, Event, Callback types
+│   │   └── renderer.go          # Terminal progress bar renderer
 │   └── assembly/
 │       └── ffmpeg.go            # FFmpeg audio concatenation
-├── docs/                        # PR-FAQ, PRD, SPEC, API reference docs
+├── deploy/
+│   ├── Dockerfile               # Multi-stage ARM64 container for MCP server
+│   └── infrastructure/          # CDK stack (ECR, CloudFront, Lambda, IAM)
+├── docs/                        # PR-FAQ, PRD, SPEC, roadmap
 ├── .claude/skills/              # Claude Code skills (generate-persona)
 ├── go.mod
 ├── Makefile
@@ -174,11 +214,22 @@ curl -s http://localhost:8000/mcp -d '{"jsonrpc":"2.0","id":3,"method":"tools/ca
 ### Deployment
 
 ```bash
-make docker-build && make docker-push   # Build + push ARM64 container to ECR
+# Full deploy (recommended — runs all steps in order)
+make deploy
+
+# Individual steps (for debugging or partial deploys)
 make deploy-infra                        # CDK deploy (ECR, CloudFront, Lambda, IAM)
-make deploy-agentcore                    # Register with AgentCore (first time)
-make update-agentcore                    # Update container image (subsequent deploys)
+make docker-push                         # Build + push ARM64 container to ECR
+make force-update-agentcore              # Force AgentCore to pull latest image
+make verify-deploy                       # Wait for AgentCore runtime to be READY
+
+# First-time setup
+make deploy-agentcore                    # Register new AgentCore runtime
 make create-secrets                      # Store API keys in Secrets Manager
+
+# Verification
+make smoke-test                          # Test deployed server (initialize + tools/list)
+make smoke-test-local                    # Test local server at localhost:8000
 ```
 
 ## Testing Policy

@@ -1,4 +1,10 @@
-# Roadmap
+# Roadmap (Historical Archive)
+
+> **Note**: This roadmap was written after Sprint 4. Actual development took a different direction:
+> Sprints 5-7 implemented cross-provider voice mixing, TTS model selection, and three-host support.
+> Sprints 8-9 added progress bars, show formats, script refinement, and a TUI.
+> Sprint 10 deployed the MCP server on AWS Bedrock AgentCore.
+> The sprint ideas below were partially implemented but with different scopes and approaches than described here.
 
 Three feature requests for podcaster, each scoped as a sprint. These build on the existing v0.1.0 architecture (ingest → script → TTS → assembly pipeline with interface-based stages).
 
