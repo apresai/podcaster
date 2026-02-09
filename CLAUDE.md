@@ -285,40 +285,23 @@ Do not guess at the cause of AWS failures — check the logs. Do not retry the s
 
 ## Gemini TTS Rate Limits
 
-The current bottleneck for podcast generation is AI Studio's strict TTS rate limits (Paid Tier 1):
-
-**AI Studio API** (`generativelanguage.googleapis.com`) — current endpoint:
+AI Studio's strict rate limits are the bottleneck for the default `gemini` TTS provider (Paid Tier 1):
 
 | Model | RPM | TPM | RPD |
 |-------|-----|-----|-----|
 | Flash TTS (`gemini-2.5-flash-preview-tts`) | 10 | 10K | 100 |
 | Pro TTS (`gemini-2.5-pro-preview-tts`) | 10 | 10K | 50 |
 
-At 10 RPM, a 60-segment podcast uses 60 of 100 daily requests. You can barely make 1 podcast per day.
+At 10 RPM, a 60-segment podcast uses 60 of 100 daily requests — barely 1 podcast/day.
 
-**Current mitigation:**
-- `DisableBatch=true` in `tasks.go` — synthesizes one segment at a time
-- 7s throttle between Gemini TTS requests (`pipeline.go` `synthesizeSegments`) to stay under 10 RPM
-- 30 segments at 7s = ~3.5 min for a short podcast, ~7 min for standard
-- Batch mode (`GeminiProvider.batchHttpClient`) is only for CLI/local use (single request, no rate limit concern)
-- Pro TTS has only 50 RPD — monitor via [AI Studio usage dashboard](https://aistudio.google.com/usage)
-- Graceful shutdown: SIGTERM cancels pipeline goroutines → FailJob writes to DynamoDB → prevents stuck "synthesizing" status
+**Mitigations for `--tts gemini` on AgentCore:**
+- `DisableBatch=true` in `tasks.go` — per-segment mode with 7s throttle to stay under 10 RPM
+- Batch mode is only for CLI/local use (single request, no rate limit concern)
+- Graceful shutdown: SIGTERM cancels pipeline goroutines → FailJob writes to DynamoDB
 
-**Cloud Text-to-Speech API** (`texttospeech.googleapis.com`) — the upgrade path:
+**Better alternatives:** Use `--tts vertex-express` (API key auth, higher quotas TBD) or `--tts gemini-vertex` (ADC auth, 30K RPM).
 
-| Model | RPM | Content Limit |
-|-------|-----|---------------|
-| `gemini-2.5-flash-tts` | 150 | 5,000 bytes/request |
-| `gemini-2.5-pro-tts` | 125 | 5,000 bytes/request |
-
-- No documented daily request limit
-- Quotas can be increased via Google Cloud Console
-- 15x higher throughput than AI Studio
-- Auth: Service account / ADC (not API key)
-- Regional endpoints: `us`, `eu`, `northamerica-northeast1`, etc.
-- GA model names (no `-preview` suffix)
-
-## Vertex AI / Cloud TTS Migration Path
+## Vertex AI / Cloud TTS Endpoints
 
 Three Vertex AI TTS endpoints are available:
 
