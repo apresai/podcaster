@@ -58,8 +58,8 @@ export default async function AdminUsagePage() {
     listAllPodcasts(100),
   ]);
 
-  const totalCost = usage.reduce((sum, u) => sum + u.totalCostUSD, 0);
-  const totalPodcasts = usage.reduce((sum, u) => sum + u.podcastCount, 0);
+  const totalPodcasts = podcasts.length;
+  const totalCost = podcasts.reduce((sum, p) => sum + (p.estimatedCostUSD ?? 0), 0);
 
   return (
     <div className="space-y-8">
@@ -99,7 +99,7 @@ export default async function AdminUsagePage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {new Set(usage.map((u) => u.userId)).size}
+              {new Set(podcasts.map((p) => p.userId).filter(Boolean)).size}
             </div>
           </CardContent>
         </Card>
