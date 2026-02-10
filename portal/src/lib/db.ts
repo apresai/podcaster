@@ -10,7 +10,7 @@ import { randomBytes, createHash } from "crypto";
 
 const client = new DynamoDBClient({ region: process.env.AWS_REGION || "us-east-1" });
 const ddb = DynamoDBDocumentClient.from(client);
-const TABLE = process.env.DYNAMODB_TABLE || "apresai-podcasts-prod";
+const TABLE = process.env.DYNAMODB_TABLE || "podcaster-prod";
 
 // --- Types ---
 

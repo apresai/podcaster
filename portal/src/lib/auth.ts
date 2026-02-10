@@ -18,11 +18,13 @@ declare module "next-auth" {
 }
 
 export const authConfig: NextAuthConfig = {
+  trustHost: true,
   providers: [
     Cognito({
       clientId: process.env.COGNITO_CLIENT_ID!,
       clientSecret: process.env.COGNITO_CLIENT_SECRET!,
       issuer: process.env.COGNITO_ISSUER!,
+      checks: ["state"],
     }),
   ],
   callbacks: {
