@@ -14,6 +14,7 @@ import (
 	"github.com/apresai/podcaster/internal/pipeline"
 	"github.com/apresai/podcaster/internal/progress"
 	"github.com/apresai/podcaster/internal/script"
+	"github.com/apresai/podcaster/internal/tts"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -32,6 +33,16 @@ type GenerateRequest struct {
 	Topic     string
 	Owner     string
 	UserID    string // authenticated user ID (empty for anonymous)
+
+	// Voice and style options
+	Style        string  // comma-separated styles: humor, wow, serious, debate, storytelling
+	Voice1       string  // voice spec: plain ID or "provider:ID"
+	Voice2       string
+	Voice3       string
+	TTSModel     string  // TTS model override (e.g. eleven_v3, gemini-2.5-pro-tts)
+	TTSSpeed     float64 // speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0)
+	TTSStability float64 // voice stability, ElevenLabs only (0.0-1.0)
+	TTSPitch     float64 // pitch in semitones, Google only (-20.0 to 20.0)
 
 	// Per-request API key overrides (BYOK). Empty = use server defaults.
 	AnthropicAPIKey  string
@@ -221,6 +232,31 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		voices = 2
 	}
 
+	// Parse voice specs (provider:voiceID or plain voiceID)
+	v1Provider, v1ID := tts.ParseVoiceSpec(req.Voice1)
+	v2Provider, v2ID := tts.ParseVoiceSpec(req.Voice2)
+	v3Provider, v3ID := tts.ParseVoiceSpec(req.Voice3)
+	if v1Provider == "" {
+		v1Provider = ttsProvider
+	}
+	if v2Provider == "" {
+		v2Provider = ttsProvider
+	}
+	if v3Provider == "" {
+		v3Provider = ttsProvider
+	}
+
+	// Parse comma-separated styles
+	var styles []string
+	if req.Style != "" {
+		for _, s := range strings.Split(req.Style, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				styles = append(styles, s)
+			}
+		}
+	}
+
 	opts := pipeline.Options{
 		Input:            input,
 		Output:           outputPath,
@@ -228,12 +264,20 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		Tone:             req.Tone,
 		Duration:         duration,
 		Format:           format,
+		Styles:           styles,
+		Voice1:           v1ID,
+		Voice1Provider:   v1Provider,
+		Voice2:           v2ID,
+		Voice2Provider:   v2Provider,
+		Voice3:           v3ID,
+		Voice3Provider:   v3Provider,
 		Voices:           voices,
 		DefaultTTS:       ttsProvider,
-		Voice1Provider:   ttsProvider,
-		Voice2Provider:   ttsProvider,
-		Voice3Provider:   ttsProvider,
 		Model:            model,
+		TTSModel:         req.TTSModel,
+		TTSSpeed:         req.TTSSpeed,
+		TTSStability:     req.TTSStability,
+		TTSPitch:         req.TTSPitch,
 		OnProgress:       progressCb,
 		DisableBatch:     true, // Per-segment with rate limiting for AI Studio Gemini TTS 10 RPM limit
 		AnthropicAPIKey:  req.AnthropicAPIKey,

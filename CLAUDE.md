@@ -218,6 +218,17 @@ All Gemini TTS providers (gemini, vertex-express, gemini-vertex) share the same 
 
 Remote MCP server deployed on AWS Bedrock AgentCore. Runs the pipeline as a goroutine, tracks via DynamoDB, uploads MP3 to S3, served via CloudFront CDN.
 
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `generate_podcast` | Start async generation. Params: `input_url`/`input_text`, `model`, `tts`, `format`, `duration`, `tone`, `topic`, `style`, `voices`, `voice1`/`voice2`/`voice3`, `tts_model`, `tts_speed`, `tts_stability`, `tts_pitch`, plus BYOK API keys. |
+| `get_podcast` | Poll status by podcast_id. Returns progress, audio_url when complete. |
+| `list_podcasts` | Paginated list of podcasts with `limit` and `cursor`. |
+| `list_voices` | List available voices for a TTS provider (required param: `provider`). |
+| `list_options` | List all formats, styles, TTS providers, models, and durations (no params). |
+| `server_info` | Runtime diagnostics. |
+
 ### Resources
 
 Podcaster owns all its AWS resources (fully independent from other projects):

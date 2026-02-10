@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apresai/podcaster/internal/tts"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -32,7 +33,7 @@ func ToolDefs() []mcp.Tool {
 		},
 		{
 			Name:        "generate_podcast",
-			Description: "Generate a podcast episode from a URL or text input. Starts async pipeline (content ingestion, script generation, text-to-speech synthesis, audio assembly) and returns a podcast_id immediately. Use get_podcast to poll for progress and the completed result with an audio_url link to the MP3 file. Generation takes 3-8 minutes depending on duration setting. Always poll get_podcast until status is 'complete', then show the audio_url link to the user.",
+			Description: "Generate a podcast episode from a URL or text input. Starts async pipeline (content ingestion, script generation, text-to-speech synthesis, audio assembly) and returns a podcast_id immediately. Use get_podcast to poll for progress and the completed result with an audio_url link to the MP3 file. Generation takes 3-8 minutes depending on duration setting. Always poll get_podcast until status is 'complete', then show the audio_url link to the user. Use list_voices to discover available voice IDs and list_options to see all formats, styles, and providers.",
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -77,6 +78,38 @@ func ToolDefs() []mcp.Tool {
 					"topic": map[string]any{
 						"type":        "string",
 						"description": "Focus topic to emphasize in the conversation",
+					},
+					"style": map[string]any{
+						"type":        "string",
+						"description": "Conversation styles (comma-separated): humor, wow, serious, debate, storytelling",
+					},
+					"voice1": map[string]any{
+						"type":        "string",
+						"description": "Voice ID for host 1. Use list_voices to see available IDs. Format: plain ID (e.g. 'Kore') or 'provider:ID' for cross-provider mixing (e.g. 'elevenlabs:rachel').",
+					},
+					"voice2": map[string]any{
+						"type":        "string",
+						"description": "Voice ID for host 2. Same format as voice1.",
+					},
+					"voice3": map[string]any{
+						"type":        "string",
+						"description": "Voice ID for host 3. Same format as voice1.",
+					},
+					"tts_model": map[string]any{
+						"type":        "string",
+						"description": "TTS model override (e.g. eleven_v3, gemini-2.5-pro-tts). Leave empty for provider default.",
+					},
+					"tts_speed": map[string]any{
+						"type":        "number",
+						"description": "Speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0). Not supported by Gemini providers.",
+					},
+					"tts_stability": map[string]any{
+						"type":        "number",
+						"description": "Voice stability, ElevenLabs only (0.0-1.0, default 0.5).",
+					},
+					"tts_pitch": map[string]any{
+						"type":        "number",
+						"description": "Pitch in semitones, Google Cloud TTS only (-20.0 to 20.0).",
 					},
 					"anthropic_api_key": map[string]any{
 						"type":        "string",
@@ -123,6 +156,28 @@ func ToolDefs() []mcp.Tool {
 						"description": "Pagination cursor from a previous list_podcasts call",
 					},
 				},
+			},
+		},
+		{
+			Name:        "list_voices",
+			Description: "List available TTS voices for a provider. Returns voice IDs that can be used with voice1/voice2/voice3 params in generate_podcast.",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"provider": map[string]any{
+						"type":        "string",
+						"description": "TTS provider name: gemini, vertex-express, gemini-vertex, elevenlabs, google",
+					},
+				},
+				Required: []string{"provider"},
+			},
+		},
+		{
+			Name:        "list_options",
+			Description: "List all available options for podcast generation: show formats, conversation styles, TTS providers, script models, and durations.",
+			InputSchema: mcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{},
 			},
 		},
 	}
@@ -190,6 +245,14 @@ func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRe
 		Format:           mcp.ParseString(req, "format", "conversation"),
 		Voices:           parseIntParam(req, "voices", 2),
 		Topic:            mcp.ParseString(req, "topic", ""),
+		Style:            mcp.ParseString(req, "style", ""),
+		Voice1:           mcp.ParseString(req, "voice1", ""),
+		Voice2:           mcp.ParseString(req, "voice2", ""),
+		Voice3:           mcp.ParseString(req, "voice3", ""),
+		TTSModel:         mcp.ParseString(req, "tts_model", ""),
+		TTSSpeed:         parseFloatParam(req, "tts_speed", 0),
+		TTSStability:     parseFloatParam(req, "tts_stability", 0),
+		TTSPitch:         parseFloatParam(req, "tts_pitch", 0),
 		AnthropicAPIKey:  mcp.ParseString(req, "anthropic_api_key", ""),
 		GeminiAPIKey:     mcp.ParseString(req, "gemini_api_key", ""),
 		ElevenLabsAPIKey: mcp.ParseString(req, "elevenlabs_api_key", ""),
@@ -423,4 +486,100 @@ func parseIntParam(req mcp.CallToolRequest, key string, defaultVal int) int {
 	default:
 		return defaultVal
 	}
+}
+
+func parseFloatParam(req mcp.CallToolRequest, key string, defaultVal float64) float64 {
+	args := req.GetArguments()
+	if args == nil {
+		return defaultVal
+	}
+	raw, ok := args[key]
+	if !ok {
+		return defaultVal
+	}
+	switch v := raw.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	default:
+		return defaultVal
+	}
+}
+
+// HandleListVoices returns available voices for a TTS provider.
+func (h *Handlers) HandleListVoices(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	provider := mcp.ParseString(req, "provider", "")
+	if provider == "" {
+		return mcp.NewToolResultError("provider is required"), nil
+	}
+
+	voices, err := tts.AvailableVoices(provider)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("unknown provider %q: must be gemini, vertex-express, gemini-vertex, elevenlabs, or google", provider)), nil
+	}
+
+	voiceList := make([]map[string]any, 0, len(voices))
+	for _, v := range voices {
+		entry := map[string]any{
+			"id":          v.ID,
+			"name":        v.Name,
+			"gender":      v.Gender,
+			"description": v.Description,
+		}
+		if v.DefaultFor != "" {
+			entry["default_for"] = v.DefaultFor
+		}
+		voiceList = append(voiceList, entry)
+	}
+
+	result := map[string]any{
+		"provider": provider,
+		"voices":   voiceList,
+		"count":    len(voiceList),
+	}
+	return jsonResult(result)
+}
+
+// HandleListOptions returns all available generation options.
+func (h *Handlers) HandleListOptions(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	result := map[string]any{
+		"formats": []map[string]any{
+			{"name": "conversation", "description": "Casual back-and-forth discussion"},
+			{"name": "interview", "description": "Structured Q&A with interviewer and expert(s)"},
+			{"name": "deep-dive", "description": "Investigative deep dive, layered evidence"},
+			{"name": "explainer", "description": "Educational explainer, progressive complexity"},
+			{"name": "debate", "description": "Point-counterpoint with opposing positions"},
+			{"name": "news", "description": "News briefing, single-story deep coverage"},
+			{"name": "storytelling", "description": "Narrative arc with tension and resolution"},
+			{"name": "challenger", "description": "Devil's advocate stress-testing ideas"},
+		},
+		"styles": []map[string]any{
+			{"name": "humor", "description": "Witty banter, clever one-liners, running jokes"},
+			{"name": "wow", "description": "Build-up to dramatic reveals, surprise reactions"},
+			{"name": "serious", "description": "Measured, analytical, gravity-weighted tone"},
+			{"name": "debate", "description": "Push-back, challenge assumptions, dialectical"},
+			{"name": "storytelling", "description": "Narrative threads, callbacks, scene-setting"},
+		},
+		"tts_providers": []map[string]any{
+			{"name": "gemini", "auth": "API key (GEMINI_API_KEY)", "rate_limit": "10 RPM, 100 RPD", "voices": "30 Gemini voices"},
+			{"name": "vertex-express", "auth": "API key (VERTEX_AI_API_KEY)", "rate_limit": "Higher than AI Studio", "voices": "Same 30 Gemini voices"},
+			{"name": "gemini-vertex", "auth": "GCP ADC/service account", "rate_limit": "30,000 RPM", "voices": "Same 30 Gemini voices"},
+			{"name": "elevenlabs", "auth": "API key (ELEVENLABS_API_KEY)", "rate_limit": "Varies by plan", "voices": "10+ ElevenLabs voices"},
+			{"name": "google", "auth": "GCP ADC/service account", "rate_limit": "150 RPM", "voices": "8 Chirp 3 HD voices"},
+		},
+		"models": []map[string]any{
+			{"name": "haiku", "provider": "Anthropic", "description": "Claude Haiku 4.5 (fastest, default)"},
+			{"name": "sonnet", "provider": "Anthropic", "description": "Claude Sonnet 4.5"},
+			{"name": "gemini-flash", "provider": "Google", "description": "Gemini 2.5 Flash"},
+			{"name": "gemini-pro", "provider": "Google", "description": "Gemini 2.5 Pro"},
+		},
+		"durations": []map[string]any{
+			{"name": "short", "description": "~8 minutes, ~30 segments"},
+			{"name": "standard", "description": "~18 minutes, ~60 segments"},
+			{"name": "long", "description": "~35 minutes, ~100 segments"},
+			{"name": "deep", "description": "~55 minutes, ~200 segments"},
+		},
+	}
+	return jsonResult(result)
 }

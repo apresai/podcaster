@@ -109,6 +109,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	mcpServer.AddTool(tools[1], handlers.HandleGeneratePodcast)
 	mcpServer.AddTool(tools[2], handlers.HandleGetPodcast)
 	mcpServer.AddTool(tools[3], handlers.HandleListPodcasts)
+	mcpServer.AddTool(tools[4], handlers.HandleListVoices)
+	mcpServer.AddTool(tools[5], handlers.HandleListOptions)
 
 	return &Server{
 		cfg:      cfg,

@@ -54,7 +54,7 @@ podcaster generate -i <source> [options]
 | `--input` | `-i` | Source content (URL, PDF path, or text file) | required |
 | `--output` | `-o` | Output MP3 path (auto-named from title if omitted) | auto |
 | `--model` | `-m` | Script model: `haiku`, `sonnet`, `gemini-flash`, `gemini-pro` | `haiku` |
-| `--tts` | `-T` | TTS provider: `gemini`, `elevenlabs`, `google` | `gemini` |
+| `--tts` | `-T` | TTS provider: `gemini`, `vertex-express`, `gemini-vertex`, `elevenlabs`, `google` | `gemini` |
 | `--format` | `-F` | Show format: `conversation`, `interview`, `deep-dive`, `explainer`, `debate`, `news`, `storytelling`, `challenger` | `conversation` |
 | `--duration` | `-d` | Target length: `short` (~8min), `standard` (~18min), `long` (~35min), `deep` (~55min) | `standard` |
 | `--tone` | `-n` | Conversation tone: `casual`, `technical`, `educational` | `casual` |
@@ -145,6 +145,18 @@ Host names are dynamically set from voice selection. Default names:
 | `storytelling` | Narrative-driven exploration |
 | `challenger` | Devil's advocate format with rigorous questioning |
 
+## TTS Providers
+
+| Provider | Flag | Auth | Rate Limit | Voice Set |
+|----------|------|------|------------|-----------|
+| Gemini (AI Studio) | `gemini` | API key (`GEMINI_API_KEY`) | 10 RPM, 100 RPD | 30 Gemini voices |
+| Vertex AI Express | `vertex-express` | API key (`VERTEX_AI_API_KEY`) | Higher than AI Studio | Same 30 Gemini voices |
+| Vertex AI | `gemini-vertex` | GCP ADC/service account | 30,000 RPM | Same 30 Gemini voices |
+| ElevenLabs | `elevenlabs` | API key (`ELEVENLABS_API_KEY`) | Varies by plan | 10+ ElevenLabs voices |
+| Google Cloud TTS | `google` | GCP ADC/service account | 150 RPM | 8 Chirp 3 HD voices |
+
+List available voices with `podcaster list-voices` or the `list_voices` MCP tool.
+
 ## Environment Variables
 
 | Variable | Required | Purpose |
@@ -152,6 +164,9 @@ Host names are dynamically set from voice selection. Default names:
 | `GEMINI_API_KEY` | Yes (default config) | Gemini script gen + TTS |
 | `ANTHROPIC_API_KEY` | Only for `--model haiku/sonnet` | Claude script generation |
 | `ELEVENLABS_API_KEY` | Only for `--tts elevenlabs` | ElevenLabs TTS |
+| `VERTEX_AI_API_KEY` | Only for `--tts vertex-express` | Vertex AI Express TTS |
+| `GCP_PROJECT` | Only for `--tts gemini-vertex` | GCP project ID |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Only for ADC-based providers | Path to GCP service account JSON |
 
 ## Script Generation Models
 
@@ -166,7 +181,16 @@ Host names are dynamically set from voice selection. Default names:
 
 Podcaster is also available as a remote MCP server deployed on AWS Bedrock AgentCore. AI assistants can generate podcasts by calling MCP tools — no CLI needed.
 
-**Tools**: `generate_podcast` (async), `get_podcast` (poll status), `list_podcasts` (browse history)
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `generate_podcast` | Start async podcast generation from a URL or text. Returns a podcast_id to poll. |
+| `get_podcast` | Poll status/progress of a generation. Returns audio_url when complete. |
+| `list_podcasts` | Browse generated podcasts with pagination. |
+| `list_voices` | List available TTS voices for a provider (gemini, elevenlabs, google, etc.). |
+| `list_options` | List all formats, styles, TTS providers, script models, and durations. |
+| `server_info` | Runtime diagnostics and environment info. |
 
 Audio is served via CloudFront CDN at `podcasts.apresai.dev`.
 
