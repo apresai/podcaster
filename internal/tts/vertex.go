@@ -132,7 +132,7 @@ func (p *VertexProvider) getAccessToken(ctx context.Context) (string, error) {
 func (p *VertexProvider) Synthesize(ctx context.Context, text string, voice Voice) (AudioResult, error) {
 	req := geminiRequest{
 		Contents: []geminiContent{
-			{Parts: []geminiPart{{Text: text}}},
+			{Role: "user", Parts: []geminiPart{{Text: text}}},
 		},
 		GenerationConfig: geminiGenConfig{
 			ResponseModalities: []string{"AUDIO"},
@@ -181,7 +181,7 @@ func (p *VertexProvider) SynthesizeBatch(ctx context.Context, segments []script.
 
 	req := geminiRequest{
 		Contents: []geminiContent{
-			{Parts: []geminiPart{{Text: dialogue}}},
+			{Role: "user", Parts: []geminiPart{{Text: dialogue}}},
 		},
 		GenerationConfig: geminiGenConfig{
 			ResponseModalities: []string{"AUDIO"},
@@ -282,7 +282,7 @@ func (p *VertexProvider) doRequest(ctx context.Context, reqBody geminiRequest, c
 	if len(resp.Candidates) == 0 ||
 		len(resp.Candidates[0].Content.Parts) == 0 ||
 		resp.Candidates[0].Content.Parts[0].InlineData == nil {
-		return nil, fmt.Errorf("Vertex response contained no audio data")
+		return nil, &RetryableError{StatusCode: 200, Body: "Vertex response contained no audio data"}
 	}
 
 	audioB64 := resp.Candidates[0].Content.Parts[0].InlineData.Data

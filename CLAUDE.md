@@ -22,7 +22,7 @@ make clean                   # Remove build artifacts
 make dev                     # Build and run with sample input
 
 # Deploy (full pipeline)
-make deploy                  # clean → build → CDK deploy → docker push → AgentCore update → verify
+make deploy                  # clean → build → portal → CDK deploy → docker push → AgentCore update → verify
 make deploy-infra            # CDK deploy only (ECR, CloudFront, Lambda, IAM)
 make docker-push             # Build + push ARM64 container to ECR
 make force-update-agentcore  # Force all AgentCore runtimes to re-pull container
@@ -115,9 +115,15 @@ podcaster/
 │   │   └── renderer.go          # Terminal progress bar renderer
 │   └── assembly/
 │       └── ffmpeg.go            # FFmpeg audio concatenation
+├── portal/                      # Next.js web portal (OpenNext → Lambda + CloudFront)
+│   ├── src/app/                 # App Router pages + API routes
+│   ├── src/lib/db.ts            # DynamoDB operations
+│   └── open-next.config.ts      # OpenNext build configuration
 ├── deploy/
 │   ├── Dockerfile               # Multi-stage ARM64 container for MCP server
-│   └── infrastructure/          # CDK stack (ECR, CloudFront, Lambda, IAM)
+│   └── infrastructure/          # CDK stack (ECR, CloudFront, Lambda, DynamoDB, S3, IAM)
+├── scripts/
+│   └── migrate-data/main.go     # One-time DynamoDB + S3 migration script
 ├── docs/                        # PR-FAQ, PRD, SPEC, roadmap
 ├── .claude/skills/              # Claude Code skills (generate-persona)
 ├── go.mod
@@ -150,7 +156,8 @@ Use `/generate-persona` to create new personas for custom voices.
 | `ELEVENLABS_API_KEY` | ElevenLabs (TTS) | `--tts elevenlabs` |
 | `GCP_PROJECT` | GCP project ID | `--tts gemini-vertex` |
 | `GCP_REGION` | GCP region (default: us-central1) | `--tts gemini-vertex` (optional) |
-| ADC / `GOOGLE_APPLICATION_CREDENTIALS` | GCP OAuth2 | `--tts gemini-vertex` |
+| ADC / `GOOGLE_APPLICATION_CREDENTIALS` | GCP OAuth2 | `--tts gemini-vertex` or `--tts google` |
+| `GCP_SERVICE_ACCOUNT_JSON` | Secrets Manager only | Auto-sets `GOOGLE_APPLICATION_CREDENTIALS` + `GCP_PROJECT` on AgentCore |
 
 ## External Dependencies
 
@@ -211,28 +218,19 @@ All Gemini TTS providers (gemini, vertex-express, gemini-vertex) share the same 
 
 Remote MCP server deployed on AWS Bedrock AgentCore. Runs the pipeline as a goroutine, tracks via DynamoDB, uploads MP3 to S3, served via CloudFront CDN.
 
-### Relationship to apresai.dev
+### Resources
 
-The podcaster MCP server and the [apresai.dev website](https://apresai.dev) (`~/dev/apresai.dev`) share the same S3 bucket (`apresai-podcasts-{account_id}`) for podcast audio files. Two CloudFront distributions serve from this bucket:
-
-| Distribution | Domain | Purpose | CDK Stack |
-|---|---|---|---|
-| `E2V8XL1151FKNB` | `apresai.dev` | Website + podcast playback via `/audio/*` path | `ApresAiStack-dev` in `~/dev/apresai.dev` |
-| `E1W4M4V0CRXQ5R` | `podcasts.apresai.dev` | Dedicated CDN for MCP-generated audio | `PodcasterMcpStack` in `~/dev/podcaster` |
-
-Both distributions use **OAC** (Origin Access Control) to access the podcast S3 bucket. The bucket policy is auto-managed by CDK — each `S3BucketOrigin.withOriginAccessControl()` call adds its distribution's service principal.
-
-**Important**: If either CDK stack is deployed, it may overwrite the bucket policy. Both stacks must use OAC (not OAI) so the auto-generated policy includes entries for both distributions. If one stack switches to OAI, it will break the other.
-
-Other shared resources:
-- **DynamoDB table** `apresai-podcasts-prod` — podcast metadata, used by both the MCP server and the apresai.dev upload/list/delete Lambda functions
-- **Route53 hosted zone** `apresai.dev` (Z042792810Z6CUA4J2WCN) — both stacks look up this zone for DNS records
+Podcaster owns all its AWS resources (fully independent from other projects):
+- **S3 audio bucket**: `podcaster-audio-{account_id}` — podcast MP3 files
+- **DynamoDB table**: `podcaster-prod` — podcast metadata, users, API keys, usage
+- **CloudFront distribution**: `podcasts.apresai.dev` — serves portal + `/audio/*` CDN
+- **Route53 hosted zone**: `apresai.dev` (lookup only — shared across projects, never created/deleted by any stack)
 
 ### Local Testing
 
 ```bash
 # Run MCP server locally (uses env vars for API keys, AWS creds for DynamoDB/S3)
-S3_BUCKET=apresai-podcasts-228029809749 DYNAMODB_TABLE=apresai-podcasts-prod \
+S3_BUCKET=podcaster-audio-228029809749 DYNAMODB_TABLE=podcaster-prod \
   SECRET_PREFIX="" go run ./cmd/mcp-server
 
 # Test via curl (MCP StreamableHTTP on port 8000)
@@ -332,7 +330,9 @@ Three Vertex AI TTS endpoints are available:
 - GCP project with billing enabled (`chadneal-learning-1`)
 - Enable Cloud Text-to-Speech API or Vertex AI API
 - Service account with `roles/aiplatform.user`
-- Store service account JSON in AWS Secrets Manager
+- **Local**: Set `GOOGLE_APPLICATION_CREDENTIALS` to the SA JSON file path
+- **AgentCore**: Store SA JSON in Secrets Manager as `GCP_SERVICE_ACCOUNT_JSON` — `loadSecrets()` writes it to a temp file and sets `GOOGLE_APPLICATION_CREDENTIALS` + `GCP_PROJECT` automatically
+- Upload with: `GCP_SERVICE_ACCOUNT_FILE=~/path/to/sa.json make create-secrets`
 
 ### Go SDK options
 - `cloud.google.com/go/vertexai/genai` — Vertex AI SDK

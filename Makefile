@@ -48,7 +48,7 @@ docker-push: docker-build
 
 # --- Infrastructure ---
 
-deploy-infra: build-play-counter
+deploy-infra: build-play-counter build-portal
 	cd deploy/infrastructure && npm install && npx cdk deploy --all --require-approval never
 
 # --- Secrets ---
@@ -66,13 +66,24 @@ create-secrets:
 			--secret-string "$$(printenv $$key)" \
 			--region $(AWS_REGION); \
 	done
+	@if [ -n "$$GCP_SERVICE_ACCOUNT_FILE" ]; then \
+		echo "  Creating /podcaster/mcp/GCP_SERVICE_ACCOUNT_JSON from $$GCP_SERVICE_ACCOUNT_FILE..."; \
+		aws secretsmanager create-secret \
+			--name "/podcaster/mcp/GCP_SERVICE_ACCOUNT_JSON" \
+			--secret-string "file://$$GCP_SERVICE_ACCOUNT_FILE" \
+			--region $(AWS_REGION) 2>/dev/null || \
+		aws secretsmanager put-secret-value \
+			--secret-id "/podcaster/mcp/GCP_SERVICE_ACCOUNT_JSON" \
+			--secret-string "file://$$GCP_SERVICE_ACCOUNT_FILE" \
+			--region $(AWS_REGION); \
+	fi
 	@echo "Done."
 
 # --- AgentCore ---
 
 AGENTCORE_ROLE_ARN := $(shell aws cloudformation describe-stacks --stack-name PodcasterMcpStack --query "Stacks[0].Outputs[?OutputKey=='AgentCoreRoleArn'].OutputValue" --output text 2>/dev/null)
-DYNAMODB_TABLE := apresai-podcasts-prod
-S3_BUCKET := apresai-podcasts-$(AWS_ACCOUNT_ID)
+DYNAMODB_TABLE := podcaster-prod
+S3_BUCKET := podcaster-audio-$(AWS_ACCOUNT_ID)
 CDN_BASE_URL := https://podcasts.apresai.dev
 
 deploy-agentcore:
@@ -95,7 +106,7 @@ update-agentcore:
 		--role-arn $(AGENTCORE_ROLE_ARN) \
 		--network-configuration '{"networkMode":"PUBLIC"}' \
 		--protocol-configuration '{"serverProtocol":"MCP"}' \
-		--environment-variables '{"DYNAMODB_TABLE":"$(DYNAMODB_TABLE)","S3_BUCKET":"$(S3_BUCKET)","CDN_BASE_URL":"$(CDN_BASE_URL)","SECRET_PREFIX":"/podcaster/mcp/"}' \
+		--environment-variables '{"DYNAMODB_TABLE":"$(DYNAMODB_TABLE)","S3_BUCKET":"$(S3_BUCKET)","CDN_BASE_URL":"$(CDN_BASE_URL)","SECRET_PREFIX":"/podcaster/mcp/","OTEL_SERVICE_NAME":"podcaster-mcp","OTEL_TRACES_EXPORTER":"otlp","OTEL_EXPORTER_OTLP_PROTOCOL":"grpc"}' \
 		--region $(AWS_REGION)
 
 # Force-update ALL AgentCore runtimes by re-applying their current config (pulls latest container image)
@@ -130,7 +141,7 @@ force-update-agentcore:
 
 # --- Full Deploy Pipeline ---
 
-deploy: clean build-play-counter deploy-infra docker-push force-update-agentcore verify-deploy
+deploy: clean build-play-counter build-portal deploy-infra docker-push force-update-agentcore verify-deploy
 
 # --- Verification ---
 
@@ -198,7 +209,7 @@ print('  tools OK: ' + ', '.join(sorted(tools)))" || { echo "FAIL: tools/list"; 
 # --- Portal ---
 
 build-portal:
-	cd portal && npm install && npm run build
+	cd portal && npm install && npx --yes open-next build
 
 # --- Admin Tools ---
 

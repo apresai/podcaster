@@ -337,7 +337,7 @@ func (p *GeminiProvider) doRequest(ctx context.Context, reqBody geminiRequest, c
 	if len(resp.Candidates) == 0 ||
 		len(resp.Candidates[0].Content.Parts) == 0 ||
 		resp.Candidates[0].Content.Parts[0].InlineData == nil {
-		return nil, fmt.Errorf("Gemini response contained no audio data")
+		return nil, &RetryableError{StatusCode: 200, Body: "Gemini response contained no audio data"}
 	}
 
 	audioB64 := resp.Candidates[0].Content.Parts[0].InlineData.Data

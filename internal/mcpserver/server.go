@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,7 +33,7 @@ type Config struct {
 func DefaultConfig() Config {
 	cfg := Config{
 		Port:                 8000,
-		TableName:            envOr("DYNAMODB_TABLE", "apresai-podcasts-prod"),
+		TableName:            envOr("DYNAMODB_TABLE", "podcaster-prod"),
 		S3Bucket:             envOr("S3_BUCKET", ""),
 		CDNBaseURL:           envOr("CDN_BASE_URL", "https://podcasts.apresai.dev"),
 		AWSRegion:            envOr("AWS_REGION", "us-east-1"),
@@ -214,6 +215,46 @@ func loadSecrets(ctx context.Context, cfg aws.Config, prefix string, logger *slo
 		if result.SecretString != nil {
 			os.Setenv(envVar, *result.SecretString)
 			logger.Info("Loaded secret", "secret_id", secretID)
+		}
+	}
+
+	// Load GCP service account JSON for ADC-based providers (gemini-vertex, google).
+	// Write to a temp file and set GOOGLE_APPLICATION_CREDENTIALS so that
+	// google.DefaultTokenSource() / texttospeech.NewClient() pick it up.
+	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
+		gcpSecretID := prefix + "GCP_SERVICE_ACCOUNT_JSON"
+		result, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+			SecretId: &gcpSecretID,
+		})
+		if err != nil {
+			logger.Info("GCP service account secret not found, ADC providers unavailable",
+				"secret_id", gcpSecretID, "error", err)
+		} else if result.SecretString != nil {
+			tmpFile, err := os.CreateTemp("", "gcp-sa-*.json")
+			if err != nil {
+				logger.Error("Failed to create temp file for GCP credentials", "error", err)
+			} else {
+				if _, err := tmpFile.WriteString(*result.SecretString); err != nil {
+					logger.Error("Failed to write GCP credentials to temp file", "error", err)
+					tmpFile.Close()
+				} else {
+					tmpFile.Close()
+					os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", tmpFile.Name())
+					logger.Info("Loaded GCP service account credentials",
+						"path", tmpFile.Name())
+
+					// Extract project_id from the SA JSON and set GCP_PROJECT if not already set.
+					if os.Getenv("GCP_PROJECT") == "" {
+						var sa struct {
+							ProjectID string `json:"project_id"`
+						}
+						if err := json.Unmarshal([]byte(*result.SecretString), &sa); err == nil && sa.ProjectID != "" {
+							os.Setenv("GCP_PROJECT", sa.ProjectID)
+							logger.Info("Set GCP_PROJECT from service account", "project_id", sa.ProjectID)
+						}
+					}
+				}
+			}
 		}
 	}
 

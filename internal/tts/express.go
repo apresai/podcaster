@@ -267,7 +267,7 @@ func (p *VertexExpressProvider) doRequest(ctx context.Context, reqBody geminiReq
 	if len(resp.Candidates) == 0 ||
 		len(resp.Candidates[0].Content.Parts) == 0 ||
 		resp.Candidates[0].Content.Parts[0].InlineData == nil {
-		return nil, fmt.Errorf("vertex-express response contained no audio data")
+		return nil, &RetryableError{StatusCode: 200, Body: "vertex-express response contained no audio data"}
 	}
 
 	audioB64 := resp.Candidates[0].Content.Parts[0].InlineData.Data
