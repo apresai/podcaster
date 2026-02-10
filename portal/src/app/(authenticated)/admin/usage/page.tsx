@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { listAllPodcasts, listAllUsage } from "@/lib/db";
+import { listAllPodcasts, listAllUsage, listUsers } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -53,10 +53,14 @@ export default async function AdminUsagePage() {
     redirect("/dashboard");
   }
 
-  const [usage, podcasts] = await Promise.all([
+  const [usage, podcasts, users] = await Promise.all([
     listAllUsage(),
     listAllPodcasts(100),
+    listUsers(),
   ]);
+
+  const userNames = new Map(users.map((u) => [u.userId, u.email]));
+  const userName = (id?: string) => (id && userNames.get(id)) || (id ? `${id.slice(0, 8)}…` : "—");
 
   const totalPodcasts = podcasts.length;
   const totalCost = podcasts.reduce((sum, p) => sum + (p.estimatedCostUSD ?? 0), 0);
@@ -128,8 +132,8 @@ export default async function AdminUsagePage() {
               <TableBody>
                 {usage.map((u) => (
                   <TableRow key={`${u.userId}-${u.month}`}>
-                    <TableCell className="font-mono text-sm">
-                      {u.userId.slice(0, 8)}...
+                    <TableCell className="text-sm">
+                      {userName(u.userId)}
                     </TableCell>
                     <TableCell>{u.month}</TableCell>
                     <TableCell>{u.podcastCount}</TableCell>
@@ -171,8 +175,8 @@ export default async function AdminUsagePage() {
                     <TableCell className="font-medium max-w-[200px] truncate">
                       {p.title}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {p.userId ? `${p.userId.slice(0, 8)}...` : "\u2014"}
+                    <TableCell className="text-sm">
+                      {userName(p.userId)}
                     </TableCell>
                     <TableCell>
                       <Badge variant={statusColor(p.status)}>{p.status}</Badge>
