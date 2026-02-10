@@ -82,9 +82,15 @@ export class PodcasterMcpStack extends cdk.Stack {
       objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_PREFERRED,
     });
 
-    // --- ACM Certificate for podcasts.apresai.dev ---
+    // --- ACM Certificates ---
     const certificate = new certificatemanager.Certificate(this, 'PodcastCert', {
       domainName,
+      validation: certificatemanager.CertificateValidation.fromDns(hostedZone),
+    });
+
+    const authDomainName = `auth.${domainName}`;
+    const authCertificate = new certificatemanager.Certificate(this, 'AuthCert', {
+      domainName: authDomainName,
       validation: certificatemanager.CertificateValidation.fromDns(hostedZone),
     });
 
@@ -118,8 +124,11 @@ export class PodcasterMcpStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    const userPoolDomain = userPool.addDomain('PortalDomain', {
-      cognitoDomain: { domainPrefix: 'podcaster-portal' },
+    const userPoolDomain = userPool.addDomain('PortalCustomDomain', {
+      customDomain: {
+        domainName: authDomainName,
+        certificate: authCertificate,
+      },
     });
 
     const portalClient = userPool.addClient('PortalClient', {
@@ -175,15 +184,11 @@ export class PodcasterMcpStack extends cdk.Stack {
         COGNITO_ISSUER: `https://cognito-idp.${cdk.Aws.REGION}.amazonaws.com/${userPool.userPoolId}`,
         NEXTAUTH_URL: `https://${domainName}`,
         NEXTAUTH_SECRET: nextAuthSecret.secretValue.unsafeUnwrap(),
+        AUTH_SECRET: nextAuthSecret.secretValue.unsafeUnwrap(),
         AUTH_TRUST_HOST: 'true',
-        // OpenNext cache configuration
-        CACHE_BUCKET_NAME: `podcaster-portal-assets-${cdk.Aws.ACCOUNT_ID}`,
-        CACHE_BUCKET_KEY_PREFIX: '_cache',
-        CACHE_BUCKET_REGION: cdk.Aws.REGION,
       },
     });
     table.grantReadWriteData(portalServerFn);
-    staticAssetsBucket.grantReadWrite(portalServerFn);
     nextAuthSecret.grantRead(portalServerFn);
 
     const portalFnUrl = portalServerFn.addFunctionUrl({
@@ -249,12 +254,20 @@ export class PodcasterMcpStack extends cdk.Stack {
       logFilePrefix: 'cf-logs/',
     });
 
-    // --- Route53 A Record ---
+    // --- Route53 A Records ---
     new route53.ARecord(this, 'PodcastAliasRecord', {
       zone: hostedZone,
       recordName: domainName,
       target: route53.RecordTarget.fromAlias(
         new route53Targets.CloudFrontTarget(distribution),
+      ),
+    });
+
+    new route53.ARecord(this, 'AuthAliasRecord', {
+      zone: hostedZone,
+      recordName: authDomainName,
+      target: route53.RecordTarget.fromAlias(
+        new route53Targets.UserPoolDomainTarget(userPoolDomain),
       ),
     });
 
@@ -377,7 +390,7 @@ export class PodcasterMcpStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'CognitoDomain', {
-      value: `https://${userPoolDomain.domainName}.auth.${cdk.Aws.REGION}.amazoncognito.com`,
+      value: `https://${authDomainName}`,
       description: 'Cognito hosted UI domain',
     });
 
