@@ -231,6 +231,11 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		v3Provider = flagTTS
 	}
 
+	// Resolve voice display names to provider-specific IDs
+	v1ID = tts.ResolveVoiceName(v1Provider, v1ID)
+	v2ID = tts.ResolveVoiceName(v2Provider, v2ID)
+	v3ID = tts.ResolveVoiceName(v3Provider, v3ID)
+
 	// Check API keys for all providers in use
 	ttsProviders := []string{v1Provider, v2Provider}
 	if flagVoices >= 3 {

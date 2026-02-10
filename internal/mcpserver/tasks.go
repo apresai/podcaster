@@ -246,6 +246,11 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		v3Provider = ttsProvider
 	}
 
+	// Resolve voice display names to provider-specific IDs
+	v1ID = tts.ResolveVoiceName(v1Provider, v1ID)
+	v2ID = tts.ResolveVoiceName(v2Provider, v2ID)
+	v3ID = tts.ResolveVoiceName(v3Provider, v3ID)
+
 	// Parse comma-separated styles
 	var styles []string
 	if req.Style != "" {

@@ -80,6 +80,31 @@ func AvailableVoices(providerName string) ([]VoiceInfo, error) {
 	}
 }
 
+// ResolveVoiceName resolves a voice display name to a provider-specific voice ID.
+// Looks up by Name (case-insensitive), then by ID (exact match).
+// Returns input unchanged if empty or not found (let provider give proper error).
+func ResolveVoiceName(providerName, input string) string {
+	if input == "" {
+		return ""
+	}
+	voices, err := AvailableVoices(providerName)
+	if err != nil {
+		return input
+	}
+	lower := strings.ToLower(input)
+	for _, v := range voices {
+		if strings.ToLower(v.Name) == lower {
+			return v.ID
+		}
+	}
+	for _, v := range voices {
+		if v.ID == input {
+			return input
+		}
+	}
+	return input
+}
+
 // Retry constants shared by all providers.
 const (
 	defaultMaxAttempts    = 5
