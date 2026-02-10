@@ -31,6 +31,8 @@ make verify-deploy           # Poll AgentCore runtime until READY (3-min timeout
 # Testing
 make smoke-test              # Quick MCP ping test against deployed AgentCore server
 make smoke-test-local        # Quick MCP ping test against local server (localhost:8000)
+make smoke-test-proxy        # Quick MCP ping test against public proxy (requires API_KEY=pk_...)
+make build-proxy             # Build proxy Lambda binary to deploy/proxy-build/bootstrap
 
 # First-time setup
 make deploy-agentcore        # Register new AgentCore runtime (one-time)
@@ -256,6 +258,20 @@ curl -s http://localhost:8000/mcp -d '{"jsonrpc":"2.0","id":3,"method":"tools/ca
 ```
 
 **Cost-saving tip**: Use `gemini-flash` model + `short` duration for testing. This uses only Gemini API (no Anthropic costs) and generates ~8min/30 segments.
+
+### MCP Proxy (Public Endpoint)
+
+A thin Go Lambda at `cmd/mcp-proxy/main.go` acts as an auth proxy, served via CloudFront at `https://podcasts.apresai.dev/mcp`.
+
+- Validates `Authorization: Bearer pk_...` API keys against DynamoDB
+- Injects `_user_id`/`_key_id` into `tools/call` arguments
+- Forwards to AgentCore via `invoke-agent-runtime` (SigV4, automatic via Lambda role)
+- Returns AgentCore response to client
+
+**Build**: `make build-proxy` (produces `deploy/proxy-build/bootstrap`)
+**Test**: `make smoke-test-proxy API_KEY=pk_...`
+
+**CloudFront behavior**: `/mcp` -> proxy Lambda Function URL (POST, no caching, forwards Authorization header)
 
 ### Deployment
 

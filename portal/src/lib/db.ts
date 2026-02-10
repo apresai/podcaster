@@ -263,8 +263,8 @@ export async function listAllPodcasts(limit = 50): Promise<Podcast[]> {
   const result = await ddb.send(
     new QueryCommand({
       TableName: TABLE,
-      IndexName: "GSI1",
-      KeyConditionExpression: "GSI1PK = :pk",
+      IndexName: "GSI2",
+      KeyConditionExpression: "GSI2PK = :pk",
       ExpressionAttributeValues: { ":pk": "PODCASTS" },
       ScanIndexForward: false,
       Limit: limit,

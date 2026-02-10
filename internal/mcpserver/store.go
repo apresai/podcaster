@@ -34,6 +34,8 @@ type PodcastItem struct {
 	SK              string  `dynamodbav:"SK"`
 	GSI1PK          string  `dynamodbav:"GSI1PK"`
 	GSI1SK          string  `dynamodbav:"GSI1SK"`
+	GSI2PK          string  `dynamodbav:"GSI2PK,omitempty"`
+	GSI2SK          string  `dynamodbav:"GSI2SK,omitempty"`
 	PodcastID       string  `dynamodbav:"podcastId"`
 	Title           string  `dynamodbav:"title,omitempty"`
 	Summary         string  `dynamodbav:"summary,omitempty"`
@@ -85,15 +87,26 @@ func NewPodcastID() (string, error) {
 }
 
 // CreateJob inserts a new podcast job with status=submitted.
-func (s *Store) CreateJob(ctx context.Context, id, owner, sourceURL, model, ttsProvider, format string) error {
+func (s *Store) CreateJob(ctx context.Context, id, owner, userID, sourceURL, model, ttsProvider, format string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
+	sortVal := now + "#" + id
+
+	// GSI1: per-user index for authenticated users, global fallback for anonymous
+	gsi1pk := "PODCASTS"
+	if userID != "" {
+		gsi1pk = "USER#" + userID + "#PODCASTS"
+	}
+
 	item := PodcastItem{
 		PK:          "PODCAST#" + id,
 		SK:          "METADATA",
-		GSI1PK:      "PODCASTS",
-		GSI1SK:      now + "#" + id,
+		GSI1PK:      gsi1pk,
+		GSI1SK:      sortVal,
+		GSI2PK:      "PODCASTS",
+		GSI2SK:      sortVal,
 		PodcastID:   id,
 		Owner:       owner,
+		UserID:      userID,
 		SourceURL:   sourceURL,
 		Status:      string(JobStatusSubmitted),
 		Model:       model,
@@ -233,7 +246,7 @@ func (s *Store) GetPodcast(ctx context.Context, id string) (*PodcastItem, error)
 	return &item, nil
 }
 
-// ListPodcasts returns podcasts ordered by creation time (newest first) via GSI1.
+// ListPodcasts returns podcasts ordered by creation time (newest first) via GSI2 (global).
 func (s *Store) ListPodcasts(ctx context.Context, limit int, cursor string) ([]PodcastItem, string, error) {
 	if limit <= 0 {
 		limit = 20
@@ -241,8 +254,8 @@ func (s *Store) ListPodcasts(ctx context.Context, limit int, cursor string) ([]P
 
 	input := &dynamodb.QueryInput{
 		TableName:              &s.tableName,
-		IndexName:              aws.String("GSI1"),
-		KeyConditionExpression: aws.String("GSI1PK = :pk"),
+		IndexName:              aws.String("GSI2"),
+		KeyConditionExpression: aws.String("GSI2PK = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: "PODCASTS"},
 		},
@@ -251,7 +264,7 @@ func (s *Store) ListPodcasts(ctx context.Context, limit int, cursor string) ([]P
 	}
 
 	if cursor != "" {
-		// cursor is the full GSI1SK value ({timestamp}#{id})
+		// cursor is the full GSI2SK value ({timestamp}#{id})
 		// Extract the podcast ID from the cursor to reconstruct PK
 		parts := strings.SplitN(cursor, "#", 2)
 		if len(parts) != 2 {
@@ -261,8 +274,8 @@ func (s *Store) ListPodcasts(ctx context.Context, limit int, cursor string) ([]P
 		input.ExclusiveStartKey = map[string]types.AttributeValue{
 			"PK":     &types.AttributeValueMemberS{Value: "PODCAST#" + podcastID},
 			"SK":     &types.AttributeValueMemberS{Value: "METADATA"},
-			"GSI1PK": &types.AttributeValueMemberS{Value: "PODCASTS"},
-			"GSI1SK": &types.AttributeValueMemberS{Value: cursor},
+			"GSI2PK": &types.AttributeValueMemberS{Value: "PODCASTS"},
+			"GSI2SK": &types.AttributeValueMemberS{Value: cursor},
 		}
 	}
 
@@ -278,8 +291,8 @@ func (s *Store) ListPodcasts(ctx context.Context, limit int, cursor string) ([]P
 
 	var nextCursor string
 	if result.LastEvaluatedKey != nil {
-		if gsi1sk, ok := result.LastEvaluatedKey["GSI1SK"].(*types.AttributeValueMemberS); ok {
-			nextCursor = gsi1sk.Value
+		if gsi2sk, ok := result.LastEvaluatedKey["GSI2SK"].(*types.AttributeValueMemberS); ok {
+			nextCursor = gsi2sk.Value
 		}
 	}
 

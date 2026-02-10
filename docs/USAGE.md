@@ -2,31 +2,70 @@
 
 Turn any article, blog post, or text into a multi-host podcast episode using the Podcaster MCP server.
 
-## Getting Started
+## Quick Start
 
-1. **Sign up** at [podcasts.apresai.dev](https://podcasts.apresai.dev)
-2. **Wait for approval** -- accounts are admin-approved to manage usage and costs
-3. **Create an API key** from the dashboard after your account is approved
+Connect any MCP client to Podcaster with just a URL and an API key. Get your API key at [podcasts.apresai.dev](https://podcasts.apresai.dev).
 
-## Claude Desktop Setup
+### Claude Code
 
-Add the following to your Claude Desktop MCP configuration file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+```bash
+claude mcp add podcaster https://podcasts.apresai.dev/mcp \
+  --transport http \
+  --header "Authorization: Bearer pk_YOUR_API_KEY"
+```
+
+### Claude Desktop
+
+Add to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "podcaster": {
-      "type": "streamableHttp",
-      "url": "https://i656dtw3u7brkptuw2uejmzy6i0dtmii.lambda-url.us-east-1.on.aws",
-      "headers": {
-        "Authorization": "Bearer pk_your_api_key_here"
-      }
+      "transport": "streamable-http",
+      "url": "https://podcasts.apresai.dev/mcp",
+      "headers": { "Authorization": "Bearer pk_YOUR_API_KEY" }
     }
   }
 }
 ```
 
-Replace `pk_your_api_key_here` with the API key from your dashboard. Restart Claude Desktop after saving.
+### curl
+
+```bash
+# Initialize
+curl -s https://podcasts.apresai.dev/mcp \
+  -H "Authorization: Bearer pk_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test"},"capabilities":{}}}'
+
+# Generate a podcast
+curl -s https://podcasts.apresai.dev/mcp \
+  -H "Authorization: Bearer pk_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"generate_podcast","arguments":{"input_url":"https://example.com/article","duration":"short"}}}'
+
+# Check status (replace PODCAST_ID)
+curl -s https://podcasts.apresai.dev/mcp \
+  -H "Authorization: Bearer pk_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_podcast","arguments":{"podcast_id":"PODCAST_ID"}}}'
+```
+
+## Architecture
+
+```
+MCP Client -> POST https://podcasts.apresai.dev/mcp (Bearer pk_...)
+  -> CloudFront
+  -> Lambda proxy (API key validation)
+  -> AgentCore invoke-agent-runtime (SigV4)
+  -> MCP Server (container)
+```
+
+- **Protocol**: MCP over StreamableHTTP (JSON-RPC 2.0)
+- **Auth**: API key (`Authorization: Bearer pk_...`)
+- **Endpoint**: `https://podcasts.apresai.dev/mcp`
+- **Audio CDN**: `https://podcasts.apresai.dev/audio/...` (CloudFront -> S3)
 
 ## Available Tools
 
@@ -38,8 +77,8 @@ Generates a podcast episode from a URL or text input. The task runs asynchronous
 |-----------|------|---------|-------------|
 | `input_url` | string | -- | URL of content to convert into a podcast |
 | `input_text` | string | -- | Raw text to convert (alternative to `input_url`) |
-| `model` | string | `"haiku"` | Script generation model: `haiku`, `sonnet`, `gemini-flash`, `gemini-pro` |
-| `tts` | string | `"gemini"` | TTS provider: `gemini`, `elevenlabs`, `google` |
+| `model` | string | `"haiku"` | Script generation LLM (writes the conversation): `haiku` (default, Claude Haiku 4.5), `sonnet`, `gemini-flash`, `gemini-pro` |
+| `tts` | string | `"gemini"` | TTS provider (synthesizes audio): `gemini` (default), `gemini-vertex`, `vertex-express`, `elevenlabs`, `google` |
 | `tone` | string | `"casual"` | Conversation tone: `casual`, `technical`, `educational` |
 | `duration` | string | `"standard"` | Episode length: `short` (~8min), `standard` (~18min), `long` (~35min), `deep` (~55min) |
 | `format` | string | `"conversation"` | Show format (see below) |
@@ -77,6 +116,7 @@ Check the status of a podcast and retrieve details when complete.
 | `progress_percent` | 0-100 progress indicator |
 | `stage_message` | Current processing stage description |
 | `audio_url` | Direct MP3 link (available when `completed`) |
+| `script_url` | Script JSON link (available when `completed`) |
 | `title` | Generated episode title |
 | `summary` | Brief episode summary |
 | `duration` | Episode duration |
@@ -91,75 +131,17 @@ List your generated podcasts, newest first.
 | `limit` | integer | `20` | Maximum number of results |
 | `cursor` | string | -- | Pagination cursor from a previous `list_podcasts` call |
 
-## Developer Quickstart
+### list_voices
 
-You can interact with the MCP server directly using curl. The server uses the MCP StreamableHTTP protocol with JSON-RPC 2.0.
+List available voices for a TTS provider.
 
-**Step 1: Initialize the session**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `provider` | string | Yes | TTS provider name (e.g. `gemini`, `elevenlabs`) |
 
-```bash
-curl -s https://i656dtw3u7brkptuw2uejmzy6i0dtmii.lambda-url.us-east-1.on.aws \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer pk_your_api_key_here' \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-      "protocolVersion": "2024-11-05",
-      "clientInfo": {"name": "my-app"},
-      "capabilities": {}
-    }
-  }'
-```
+### list_options
 
-Save the `Mcp-Session-Id` response header for subsequent requests.
-
-**Step 2: Generate a podcast**
-
-```bash
-curl -s https://i656dtw3u7brkptuw2uejmzy6i0dtmii.lambda-url.us-east-1.on.aws \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer pk_your_api_key_here' \
-  -H 'Mcp-Session-Id: SESSION_ID_FROM_STEP_1' \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "generate_podcast",
-      "arguments": {
-        "input_url": "https://example.com/article",
-        "duration": "short",
-        "format": "conversation"
-      }
-    }
-  }'
-```
-
-The response includes a `podcast_id`.
-
-**Step 3: Poll for completion**
-
-```bash
-curl -s https://i656dtw3u7brkptuw2uejmzy6i0dtmii.lambda-url.us-east-1.on.aws \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer pk_your_api_key_here' \
-  -H 'Mcp-Session-Id: SESSION_ID_FROM_STEP_1' \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 3,
-    "method": "tools/call",
-    "params": {
-      "name": "get_podcast",
-      "arguments": {
-        "podcast_id": "PODCAST_ID_FROM_STEP_2"
-      }
-    }
-  }'
-```
-
-Poll every 10-15 seconds. When `status` is `completed`, the response includes an `audio_url` with a direct link to the MP3 file.
+List all available formats, styles, TTS providers, models, and durations. No parameters required.
 
 ## Pricing Estimates
 
@@ -177,12 +159,6 @@ Costs scale with episode duration. The `short` duration is the most economical f
 
 ## Troubleshooting
 
-**"Authentication required" error**
-Ensure your API key is included in the `Authorization` header as `Bearer pk_...`. Verify the key is active in your dashboard.
-
-**"either input_url or input_text is required"**
-You must provide one of `input_url` or `input_text` to the `generate_podcast` tool.
-
 **Podcast stuck in `processing`**
 Generation typically takes 2-5 minutes for `short` episodes and up to 15 minutes for `deep` episodes. If a podcast remains in `processing` for more than 20 minutes, it likely encountered an internal error -- try generating again.
 
@@ -196,3 +172,27 @@ Some websites block automated content extraction (e.g., sites behind Cloudflare 
 
 **Rate limits**
 One concurrent podcast generation per account. Wait for the current generation to complete before starting another.
+
+## Advanced: Direct AgentCore Access
+
+For users with AWS credentials and `bedrock-agentcore:InvokeAgentRuntime` permission, you can bypass the proxy and invoke AgentCore directly:
+
+```bash
+RUNTIME_ARN="arn:aws:bedrock-agentcore:us-east-1:228029809749:runtime/podcaster_mcp-t01dg1G007"
+
+aws bedrock-agentcore invoke-agent-runtime \
+  --agent-runtime-arn "$RUNTIME_ARN" \
+  --region us-east-1 \
+  --cli-binary-format raw-in-base64-out \
+  --accept "application/json, text/event-stream" \
+  --payload '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "clientInfo": {"name": "test"},
+      "capabilities": {}
+    }
+  }' /tmp/init.json
+```

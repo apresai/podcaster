@@ -102,7 +102,7 @@ func (tm *TaskManager) StartTask(ctx context.Context, req GenerateRequest) (stri
 	tm.cancels[id] = cancel
 	tm.mu.Unlock()
 
-	if err := tm.store.CreateJob(ctx, id, req.Owner, req.InputURL, req.Model, req.TTS, req.Format); err != nil {
+	if err := tm.store.CreateJob(ctx, id, req.Owner, req.UserID, req.InputURL, req.Model, req.TTS, req.Format); err != nil {
 		cancel()
 		tm.mu.Lock()
 		delete(tm.cancels, id)

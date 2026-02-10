@@ -64,6 +64,11 @@ export class PodcasterMcpStack extends cdk.Stack {
       partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
     });
+    table.addGlobalSecondaryIndex({
+      indexName: 'GSI2',
+      partitionKey: { name: 'GSI2PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI2SK', type: dynamodb.AttributeType.STRING },
+    });
 
     // --- Route53 hosted zone (lookup only — shared across projects) ---
     const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
@@ -205,6 +210,37 @@ export class PodcasterMcpStack extends cdk.Stack {
       ],
     });
 
+    // --- MCP Proxy Lambda ---
+    // Auth proxy: validates API keys and forwards MCP requests to AgentCore
+    // Pre-built binary: run `make build-proxy` before `make deploy-infra`
+    const mcpProxyFn = new lambda.Function(this, 'McpProxyFn', {
+      functionName: 'podcaster-mcp-proxy',
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'bootstrap',
+      code: lambda.Code.fromAsset('../../deploy/proxy-build'),
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 256,
+      environment: {
+        DYNAMODB_TABLE: table.tableName,
+        RUNTIME_ARN: 'arn:aws:bedrock-agentcore:us-east-1:228029809749:runtime/podcaster_mcp-t01dg1G007',
+      },
+    });
+
+    // DynamoDB: read for API key validation + UpdateItem for lastUsedAt
+    table.grantReadData(mcpProxyFn);
+    table.grant(mcpProxyFn, 'dynamodb:UpdateItem');
+
+    // AgentCore: invoke the runtime
+    mcpProxyFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock-agentcore:InvokeAgentRuntime'],
+      resources: ['arn:aws:bedrock-agentcore:us-east-1:228029809749:runtime/podcaster_mcp-t01dg1G007'],
+    }));
+
+    const mcpProxyFnUrl = mcpProxyFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+    });
+
     // --- CloudFront Distribution ---
     // Parse the Lambda Function URL domain from the full URL
     const portalOriginDomain = cdk.Fn.select(2, cdk.Fn.split('/', portalFnUrl.url));
@@ -252,6 +288,16 @@ export class PodcasterMcpStack extends cdk.Stack {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
           cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
           cachePolicy: audioCachePolicy,
+        },
+        '/mcp': {
+          origin: new origins.HttpOrigin(
+            cdk.Fn.select(2, cdk.Fn.split('/', mcpProxyFnUrl.url)),
+            { protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY }
+          ),
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
         },
       },
       domainNames: [domainName],
@@ -404,6 +450,11 @@ export class PodcasterMcpStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'PortalFunctionUrl', {
       value: portalFnUrl.url,
       description: 'Portal server Lambda Function URL',
+    });
+
+    new cdk.CfnOutput(this, 'McpProxyFunctionUrl', {
+      value: mcpProxyFnUrl.url,
+      description: 'MCP Proxy Lambda Function URL',
     });
   }
 }

@@ -1,6 +1,7 @@
 /podcaster
 /mcp-server
 /play-counter
+/mcp-proxy
 /bootstrap
 *.mp3
 *.json
@@ -10,6 +11,7 @@
 podcaster-output/
 deploy/sdk/
 deploy/lambda-build/
+deploy/proxy-build/
 deploy/infrastructure/node_modules/
 deploy/infrastructure/cdk.out/
 

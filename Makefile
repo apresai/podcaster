@@ -1,4 +1,4 @@
-.PHONY: build install clean dev build-mcp-server build-play-counter docker-build docker-push deploy-infra create-secrets deploy-agentcore update-agentcore force-update-agentcore deploy verify-deploy smoke-test smoke-test-local build-portal create-admin-user create-test-apikey
+.PHONY: build install clean dev build-mcp-server build-play-counter build-proxy docker-build docker-push deploy-infra create-secrets deploy-agentcore update-agentcore force-update-agentcore deploy verify-deploy smoke-test smoke-test-local smoke-test-proxy build-portal create-admin-user create-test-apikey
 
 BINARY := podcaster
 VERSION := 0.1.0
@@ -20,7 +20,7 @@ install:
 
 clean:
 	rm -f $(BINARY) mcp-server play-counter bootstrap
-	rm -rf deploy/lambda-build deploy/sdk
+	rm -rf deploy/lambda-build deploy/proxy-build deploy/sdk
 
 dev: build
 	./$(BINARY) generate -i docs/PRD.md -o test-episode.mp3 --script-only
@@ -33,6 +33,10 @@ build-mcp-server:
 build-play-counter:
 	mkdir -p deploy/lambda-build
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -tags lambda.norpc -o deploy/lambda-build/bootstrap ./cmd/play-counter
+
+build-proxy:
+	mkdir -p deploy/proxy-build
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -ldflags="-s -w" -o deploy/proxy-build/bootstrap ./cmd/mcp-proxy
 
 docker-build:
 	@# Copy SDK into build context temporarily
@@ -48,7 +52,7 @@ docker-push: docker-build
 
 # --- Infrastructure ---
 
-deploy-infra: build-play-counter build-portal
+deploy-infra: build-play-counter build-proxy build-portal
 	cd deploy/infrastructure && npm install && npx cdk deploy --all --require-approval never
 
 # --- Secrets ---
@@ -141,7 +145,7 @@ force-update-agentcore:
 
 # --- Full Deploy Pipeline ---
 
-deploy: clean build-play-counter build-portal deploy-infra docker-push force-update-agentcore verify-deploy
+deploy: clean build-play-counter build-proxy build-portal deploy-infra docker-push force-update-agentcore verify-deploy
 
 # --- Verification ---
 
@@ -204,6 +208,30 @@ expected={'generate_podcast','get_podcast','list_podcasts'}; \
 found=set(tools) & expected; \
 assert found==expected, f'Missing tools: {expected-found}, got: {tools}'; \
 print('  tools OK: ' + ', '.join(sorted(tools)))" || { echo "FAIL: tools/list"; cat /tmp/podcaster-smoke-tools.json; exit 1; }; \
+	echo "Smoke test PASSED."
+
+smoke-test-proxy:
+	@echo "Smoke-testing MCP proxy at https://podcasts.apresai.dev/mcp..."
+	@if [ -z "$(API_KEY)" ]; then echo "Usage: make smoke-test-proxy API_KEY=pk_..."; exit 1; fi
+	@echo "--- Sending initialize..."
+	@RESP=$$(curl -sf https://podcasts.apresai.dev/mcp \
+		-H "Authorization: Bearer $(API_KEY)" \
+		-H 'Content-Type: application/json' \
+		-d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke-test"},"capabilities":{}}}'); \
+	echo "$$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'podcaster' in d.get('result',{}).get('serverInfo',{}).get('name',''), f'Bad init: {d}'; print('  init OK: server=' + d['result']['serverInfo']['name'])" || { echo "FAIL"; echo "$$RESP"; exit 1; }; \
+	echo "--- Sending tools/list..."; \
+	TOOLS_RESP=$$(curl -sf https://podcasts.apresai.dev/mcp \
+		-H "Authorization: Bearer $(API_KEY)" \
+		-H 'Content-Type: application/json' \
+		-H "Mcp-Session-Id: $$(echo $$RESP | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"sessionId\",\"\"))')" \
+		-d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'); \
+	echo "$$TOOLS_RESP" | python3 -c "\
+import sys,json; d=json.load(sys.stdin); \
+tools=[t['name'] for t in d.get('result',{}).get('tools',[])]; \
+expected={'generate_podcast','get_podcast','list_podcasts'}; \
+found=set(tools) & expected; \
+assert found==expected, f'Missing tools: {expected-found}, got: {tools}'; \
+print('  tools OK: ' + ', '.join(sorted(tools)))" || { echo "FAIL: tools/list"; echo "$$TOOLS_RESP"; exit 1; }; \
 	echo "Smoke test PASSED."
 
 # --- Portal ---

@@ -47,7 +47,7 @@ func ToolDefs() []mcp.Tool {
 					},
 					"model": map[string]any{
 						"type":        "string",
-						"description": "Script generation LLM that writes the conversation: haiku (default, Claude Haiku 4.5), sonnet (Claude Sonnet 4.5), gemini-flash, gemini-pro",
+						"description": "Script generation LLM that writes the conversation. Always use haiku unless the user specifically asks for a different model. Options: haiku (default, Claude Haiku 4.5), sonnet (Claude Sonnet 4.5), gemini-flash (Gemini 2.5 Flash), gemini-pro (Gemini 2.5 Pro)",
 						"default":     "haiku",
 					},
 					"tts": map[string]any{
