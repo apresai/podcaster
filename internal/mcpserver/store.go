@@ -52,6 +52,8 @@ type PodcastItem struct {
 	Format          string  `dynamodbav:"format,omitempty"`
 	PlayCount       int     `dynamodbav:"playCount,omitempty"`
 	ScriptJSON      string  `dynamodbav:"scriptJson,omitempty"`
+	ScriptKey       string  `dynamodbav:"scriptKey,omitempty"`
+	ScriptURL       string  `dynamodbav:"scriptUrl,omitempty"`
 	CreatedAt       string  `dynamodbav:"createdAt"`
 
 	// Usage tracking fields (set after pipeline completion)
@@ -141,30 +143,42 @@ func (s *Store) UpdateProgress(ctx context.Context, id string, status JobStatus,
 }
 
 // CompleteJob marks the job as complete with final metadata.
-func (s *Store) CompleteJob(ctx context.Context, id, title, summary, audioKey, audioURL, duration, scriptJSON string, fileSizeMB float64) error {
+func (s *Store) CompleteJob(ctx context.Context, id, title, summary, audioKey, audioURL, duration, scriptJSON, scriptKey, scriptURL string, fileSizeMB float64) error {
+	updateExpr := "SET #status = :status, progressPercent = :pct, stageMessage = :msg, title = :title, summary = :summary, audioKey = :akey, audioUrl = :aurl, #dur = :dur, fileSizeMB = :sz, scriptJson = :sj"
+	exprValues := map[string]types.AttributeValue{
+		":status":  &types.AttributeValueMemberS{Value: string(JobStatusComplete)},
+		":pct":     &types.AttributeValueMemberN{Value: "1.00"},
+		":msg":     &types.AttributeValueMemberS{Value: "Complete"},
+		":title":   &types.AttributeValueMemberS{Value: title},
+		":summary": &types.AttributeValueMemberS{Value: summary},
+		":akey":    &types.AttributeValueMemberS{Value: audioKey},
+		":aurl":    &types.AttributeValueMemberS{Value: audioURL},
+		":dur":     &types.AttributeValueMemberS{Value: duration},
+		":sz":      &types.AttributeValueMemberN{Value: fmt.Sprintf("%.2f", fileSizeMB)},
+		":sj":      &types.AttributeValueMemberS{Value: scriptJSON},
+	}
+
+	if scriptKey != "" {
+		updateExpr += ", scriptKey = :skey"
+		exprValues[":skey"] = &types.AttributeValueMemberS{Value: scriptKey}
+	}
+	if scriptURL != "" {
+		updateExpr += ", scriptUrl = :surl"
+		exprValues[":surl"] = &types.AttributeValueMemberS{Value: scriptURL}
+	}
+
 	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: &s.tableName,
 		Key: map[string]types.AttributeValue{
 			"PK": &types.AttributeValueMemberS{Value: "PODCAST#" + id},
 			"SK": &types.AttributeValueMemberS{Value: "METADATA"},
 		},
-		UpdateExpression: aws.String("SET #status = :status, progressPercent = :pct, stageMessage = :msg, title = :title, summary = :summary, audioKey = :akey, audioUrl = :aurl, #dur = :dur, fileSizeMB = :sz, scriptJson = :sj"),
+		UpdateExpression: aws.String(updateExpr),
 		ExpressionAttributeNames: map[string]string{
 			"#status": "status",
 			"#dur":    "duration",
 		},
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":status":  &types.AttributeValueMemberS{Value: string(JobStatusComplete)},
-			":pct":     &types.AttributeValueMemberN{Value: "1.00"},
-			":msg":     &types.AttributeValueMemberS{Value: "Complete"},
-			":title":   &types.AttributeValueMemberS{Value: title},
-			":summary": &types.AttributeValueMemberS{Value: summary},
-			":akey":    &types.AttributeValueMemberS{Value: audioKey},
-			":aurl":    &types.AttributeValueMemberS{Value: audioURL},
-			":dur":     &types.AttributeValueMemberS{Value: duration},
-			":sz":      &types.AttributeValueMemberN{Value: fmt.Sprintf("%.2f", fileSizeMB)},
-			":sj":      &types.AttributeValueMemberS{Value: scriptJSON},
-		},
+		ExpressionAttributeValues: exprValues,
 	})
 	if err != nil {
 		return fmt.Errorf("complete job: %w", err)

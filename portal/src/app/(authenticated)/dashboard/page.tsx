@@ -176,6 +176,16 @@ export default async function DashboardPage() {
                         Listen
                       </a>
                     )}
+                    {p.scriptUrl && (
+                      <a
+                        href={p.scriptUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline"
+                      >
+                        Script
+                      </a>
+                    )}
                   </div>
                 </div>
               ))}

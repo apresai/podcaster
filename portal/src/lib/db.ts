@@ -39,6 +39,7 @@ export interface Podcast {
   title: string;
   status: string;
   audioUrl?: string;
+  scriptUrl?: string;
   model?: string;
   ttsProvider?: string;
   userId?: string;
@@ -278,6 +279,7 @@ function itemToPodcast(item: Record<string, unknown>): Podcast {
     title: item.title as string || "Untitled",
     status: item.status as string || "unknown",
     audioUrl: item.audioUrl as string | undefined,
+    scriptUrl: item.scriptUrl as string | undefined,
     model: item.model as string | undefined,
     ttsProvider: item.ttsProvider as string | undefined,
     userId: item.userId as string | undefined,

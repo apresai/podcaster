@@ -157,7 +157,18 @@ export default function DocsPage() {
                       <td className="px-4 py-2">string</td>
                       <td className="px-4 py-2">No</td>
                       <td className="px-4 py-2">
-                        Script model: haiku, sonnet, gemini-flash, gemini-pro
+                        Script generation LLM (writes the conversation): haiku
+                        (default), sonnet, gemini-flash, gemini-pro
+                      </td>
+                    </tr>
+                    <tr className="border-b">
+                      <td className="px-4 py-2 font-mono">tts</td>
+                      <td className="px-4 py-2">string</td>
+                      <td className="px-4 py-2">No</td>
+                      <td className="px-4 py-2">
+                        Text-to-speech provider (synthesizes audio): gemini
+                        (default), gemini-vertex, vertex-express, elevenlabs,
+                        google
                       </td>
                     </tr>
                     <tr className="border-b">
@@ -210,7 +221,9 @@ export default function DocsPage() {
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Get the status and details of a podcast by its ID. Use this to
-                poll for completion after calling generate_podcast.
+                poll for completion after calling generate_podcast. Completed
+                podcasts include <InlineCode>audio_url</InlineCode> and{" "}
+                <InlineCode>script_url</InlineCode> fields.
               </p>
               <h4 className="font-semibold text-sm">Parameters</h4>
               <div className="rounded-lg border">

@@ -47,12 +47,12 @@ func ToolDefs() []mcp.Tool {
 					},
 					"model": map[string]any{
 						"type":        "string",
-						"description": "Script generation model: haiku, sonnet, gemini-flash, gemini-pro",
+						"description": "Script generation LLM that writes the conversation: haiku (default, Claude Haiku 4.5), sonnet (Claude Sonnet 4.5), gemini-flash, gemini-pro",
 						"default":     "haiku",
 					},
 					"tts": map[string]any{
 						"type":        "string",
-						"description": "Text-to-speech provider: gemini, gemini-vertex (Vertex AI, higher rate limits), vertex-express (Vertex AI with API key auth), elevenlabs, google",
+						"description": "Text-to-speech provider that synthesizes audio: gemini (default), gemini-vertex, vertex-express, elevenlabs, google",
 						"default":     "gemini",
 					},
 					"tone": map[string]any{
@@ -335,6 +335,9 @@ func (h *Handlers) HandleGetPodcast(ctx context.Context, req mcp.CallToolRequest
 	if item.AudioURL != "" {
 		result["audio_url"] = item.AudioURL
 	}
+	if item.ScriptURL != "" {
+		result["script_url"] = item.ScriptURL
+	}
 	if item.Duration != "" {
 		result["duration"] = item.Duration
 	}
@@ -395,8 +398,17 @@ func (h *Handlers) HandleListPodcasts(ctx context.Context, req mcp.CallToolReque
 		if item.AudioURL != "" {
 			p["audio_url"] = item.AudioURL
 		}
+		if item.ScriptURL != "" {
+			p["script_url"] = item.ScriptURL
+		}
 		if item.Duration != "" {
 			p["duration"] = item.Duration
+		}
+		if item.Model != "" {
+			p["model"] = item.Model
+		}
+		if item.TTSProvider != "" {
+			p["tts_provider"] = item.TTSProvider
 		}
 		if item.PlayCount > 0 {
 			p["play_count"] = item.PlayCount

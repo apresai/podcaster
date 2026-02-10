@@ -246,6 +246,13 @@ export class PodcasterMcpStack extends cdk.Stack {
           cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
           cachePolicy: audioCachePolicy,
         },
+        '/scripts/*': {
+          origin: s3AudioOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+          cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+          cachePolicy: audioCachePolicy,
+        },
       },
       domainNames: [domainName],
       certificate,

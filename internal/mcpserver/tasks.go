@@ -347,8 +347,17 @@ func (tm *TaskManager) runPipeline(ctx context.Context, id string, req GenerateR
 		return
 	}
 
+	// Upload script JSON to S3 (non-fatal — inline scriptJson in DDB is authoritative)
+	var scriptKey, scriptURL string
+	if scriptJSON != "" {
+		scriptKey, scriptURL, err = tm.storage.UploadScript(ctx, id, scriptJSON)
+		if err != nil {
+			log.WarnContext(ctx, "Script upload failed (non-fatal)", "error", err)
+		}
+	}
+
 	// Mark complete
-	if err := tm.store.CompleteJob(ctx, id, title, summary, audioKey, audioURL, audioDuration, scriptJSON, fileSizeMB); err != nil {
+	if err := tm.store.CompleteJob(ctx, id, title, summary, audioKey, audioURL, audioDuration, scriptJSON, scriptKey, scriptURL, fileSizeMB); err != nil {
 		log.ErrorContext(ctx, "Complete job failed", "error", err)
 	}
 

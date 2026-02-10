@@ -186,7 +186,7 @@ export default async function AdminUsagePage() {
                     <TableCell className="text-sm">
                       {formatDate(p.createdAt)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="space-x-2">
                       {p.audioUrl && (
                         <a
                           href={p.audioUrl}
@@ -195,6 +195,16 @@ export default async function AdminUsagePage() {
                           className="text-sm text-primary hover:underline"
                         >
                           Listen
+                        </a>
+                      )}
+                      {p.scriptUrl && (
+                        <a
+                          href={p.scriptUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary hover:underline"
+                        >
+                          Script
                         </a>
                       )}
                     </TableCell>

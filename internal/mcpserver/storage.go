@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -19,6 +20,24 @@ type Storage struct {
 // NewStorage creates an S3 storage handler.
 func NewStorage(client *s3.Client, bucket, cdnBaseURL string) *Storage {
 	return &Storage{client: client, bucket: bucket, cdnBaseURL: cdnBaseURL}
+}
+
+// UploadScript uploads a script JSON string to S3 and returns the S3 key and public URL.
+func (s *Storage) UploadScript(ctx context.Context, podcastID, scriptJSON string) (key, url string, err error) {
+	key = "scripts/" + podcastID + ".json"
+
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      &s.bucket,
+		Key:         &key,
+		Body:        strings.NewReader(scriptJSON),
+		ContentType: aws.String("application/json"),
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("upload script to s3: %w", err)
+	}
+
+	url = s.cdnBaseURL + "/" + key
+	return key, url, nil
 }
 
 // Upload uploads an MP3 file to S3 and returns the S3 key and public URL.
