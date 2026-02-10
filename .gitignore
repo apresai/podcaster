@@ -12,3 +12,13 @@ deploy/sdk/
 deploy/lambda-build/
 deploy/infrastructure/node_modules/
 deploy/infrastructure/cdk.out/
+
+# OS / IDE
+.DS_Store
+.kiro/
+
+# Build artifacts
+migrate-data
+
+# OpenNext build output
+portal/.open-next/
