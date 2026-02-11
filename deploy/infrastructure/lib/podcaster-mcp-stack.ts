@@ -163,6 +163,9 @@ export class PodcasterMcpStack extends cdk.Stack {
     const nextAuthSecret = secretsmanager.Secret.fromSecretNameV2(
       this, 'NextAuthSecret', '/podcaster/portal/NEXTAUTH_SECRET',
     );
+    const portalEncryptionSecret = secretsmanager.Secret.fromSecretNameV2(
+      this, 'PortalEncryptionKey', '/podcaster/portal/PORTAL_ENCRYPTION_KEY',
+    );
 
     // --- Portal Static Assets Bucket ---
     const staticAssetsBucket = new s3.Bucket(this, 'PortalStaticAssets', {
@@ -240,6 +243,14 @@ export class PodcasterMcpStack extends cdk.Stack {
     const mcpProxyFnUrl = mcpProxyFn.addFunctionUrl({
       authType: lambda.FunctionUrlAuthType.NONE,
     });
+
+    // --- Portal → MCP Proxy env vars (for podcast generation from web UI) ---
+    portalServerFn.addEnvironment('GATEWAY_URL', mcpProxyFnUrl.url);
+    portalServerFn.addEnvironment(
+      'PORTAL_ENCRYPTION_KEY',
+      portalEncryptionSecret.secretValue.unsafeUnwrap(),
+    );
+    portalEncryptionSecret.grantRead(portalServerFn);
 
     // --- CloudFront Distribution ---
     // Parse the Lambda Function URL domain from the full URL
