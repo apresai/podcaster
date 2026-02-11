@@ -16,6 +16,9 @@ const (
 
 	// maxInputSize is the maximum allowed size for input content (25 MB).
 	maxInputSize = 25 * 1024 * 1024
+
+	// MinWordCount is the minimum number of words required to generate a podcast.
+	MinWordCount = 100
 )
 
 func (s SourceType) String() string {

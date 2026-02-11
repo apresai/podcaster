@@ -125,3 +125,21 @@ func (u *URLIngester) jinaFetch(ctx context.Context, source string) (*Content, e
 		WordCount: wordCount(text),
 	}, nil
 }
+
+// ValidateURL fetches the URL and checks that it has enough readable content
+// for podcast generation. Returns nil if valid, or an error describing the problem.
+func ValidateURL(ctx context.Context, rawURL string) error {
+	ing := &URLIngester{}
+	content, err := ing.Ingest(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("could not fetch content from %s: %w", rawURL, err)
+	}
+	if content.WordCount < MinWordCount {
+		return fmt.Errorf(
+			"the URL %s was fetched but contains too little readable text (%d words, need at least %d) — "+
+				"the page may be behind a paywall, require JavaScript, or contain mostly images",
+			rawURL, content.WordCount, MinWordCount,
+		)
+	}
+	return nil
+}

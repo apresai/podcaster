@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apresai/podcaster/internal/ingest"
 	"github.com/apresai/podcaster/internal/tts"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel"
@@ -272,6 +273,24 @@ func (h *Handlers) HandleGeneratePodcast(ctx context.Context, req mcp.CallToolRe
 	if genReq.InputURL == "" && genReq.InputText == "" {
 		span.SetStatus(codes.Error, "missing input")
 		return mcp.NewToolResultError("either input_url or input_text is required"), nil
+	}
+
+	// Validate URL content synchronously before starting async task.
+	// This catches unfetchable URLs and insufficient content immediately,
+	// so the LLM client can ask the user for input_text or a different URL.
+	if genReq.InputURL != "" {
+		valCtx, valCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer valCancel()
+		if err := ingest.ValidateURL(valCtx, genReq.InputURL); err != nil {
+			span.SetStatus(codes.Error, "url validation failed")
+			span.RecordError(err)
+			h.log.WarnContext(ctx, "URL validation failed", "url", genReq.InputURL, "error", err)
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Could not use this URL for podcast generation. %v. "+
+					"Please provide the content directly using input_text, or try a different URL.",
+				err,
+			)), nil
+		}
 	}
 
 	h.log.InfoContext(ctx, "Starting podcast generation", "model", genReq.Model, "tts", genReq.TTS)
