@@ -8,6 +8,7 @@ import { WaveformLogo } from "@/components/waveform-logo";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/create", label: "Create" },
   { href: "/api-keys", label: "API Keys" },
   { href: "/usage", label: "Usage" },
   { href: "/docs", label: "Docs" },

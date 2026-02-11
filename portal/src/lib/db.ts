@@ -6,7 +6,7 @@ import {
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { randomBytes, createHash } from "crypto";
+import { randomBytes, createHash, createCipheriv, createDecipheriv } from "crypto";
 
 const client = new DynamoDBClient({ region: process.env.AWS_REGION || "us-east-1" });
 const ddb = DynamoDBDocumentClient.from(client);
@@ -178,6 +178,32 @@ export async function suspendUser(userId: string): Promise<void> {
   );
 }
 
+// --- API Key encryption ---
+
+const ENCRYPTION_KEY = process.env.PORTAL_ENCRYPTION_KEY || "";
+
+function encryptAPIKey(rawKey: string): string {
+  if (!ENCRYPTION_KEY) throw new Error("PORTAL_ENCRYPTION_KEY not set");
+  const key = Buffer.from(ENCRYPTION_KEY, "hex");
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(rawKey, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("base64")}:${encrypted.toString("base64")}:${tag.toString("base64")}`;
+}
+
+function decryptAPIKey(blob: string): string {
+  if (!ENCRYPTION_KEY) throw new Error("PORTAL_ENCRYPTION_KEY not set");
+  const key = Buffer.from(ENCRYPTION_KEY, "hex");
+  const [ivB64, dataB64, tagB64] = blob.split(":");
+  const iv = Buffer.from(ivB64, "base64");
+  const encrypted = Buffer.from(dataB64, "base64");
+  const tag = Buffer.from(tagB64, "base64");
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8");
+}
+
 // --- API Key operations ---
 
 export function generateAPIKey(): { fullKey: string; prefix: string; keyHash: string } {
@@ -191,22 +217,21 @@ export function generateAPIKey(): { fullKey: string; prefix: string; keyHash: st
 export async function createAPIKey(userId: string, name: string): Promise<{ fullKey: string; prefix: string }> {
   const { fullKey, prefix, keyHash } = generateAPIKey();
   const now = new Date().toISOString();
-  await ddb.send(
-    new PutCommand({
-      TableName: TABLE,
-      Item: {
-        PK: `APIKEY#${prefix}`,
-        SK: "METADATA",
-        GSI1PK: `USER#${userId}#KEYS`,
-        GSI1SK: now,
-        userId,
-        keyHash,
-        name,
-        status: "active",
-        createdAt: now,
-      },
-    })
-  );
+  const item: Record<string, unknown> = {
+    PK: `APIKEY#${prefix}`,
+    SK: "METADATA",
+    GSI1PK: `USER#${userId}#KEYS`,
+    GSI1SK: now,
+    userId,
+    keyHash,
+    name,
+    status: "active",
+    createdAt: now,
+  };
+  if (ENCRYPTION_KEY) {
+    item.encryptedKey = encryptAPIKey(fullKey);
+  }
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: item }));
   return { fullKey, prefix };
 }
 
@@ -229,6 +254,28 @@ export async function listAPIKeys(userId: string): Promise<APIKey[]> {
     createdAt: item.createdAt,
     lastUsedAt: item.lastUsedAt,
   }));
+}
+
+export async function getActiveAPIKeyForUser(userId: string): Promise<string | null> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk",
+      FilterExpression: "#s = :active AND attribute_exists(encryptedKey)",
+      ExpressionAttributeNames: { "#s": "status" },
+      ExpressionAttributeValues: {
+        ":pk": `USER#${userId}#KEYS`,
+        ":active": "active",
+      },
+      Limit: 1,
+      ScanIndexForward: false,
+    })
+  );
+  if (!result.Items || result.Items.length === 0) return null;
+  const encrypted = result.Items[0].encryptedKey as string;
+  if (!encrypted) return null;
+  return decryptAPIKey(encrypted);
 }
 
 export async function revokeAPIKey(prefix: string): Promise<void> {
