@@ -14,8 +14,28 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Podcaster",
-  description: "Turn any content into a podcast",
+  title: {
+    default: "Podcaster",
+    template: "%s | Podcaster",
+  },
+  description:
+    "Turn any content into a podcast with AI-powered scripts and 30+ voices.",
+  metadataBase: new URL("https://podcasts.apresai.dev"),
+  openGraph: {
+    title: "Podcaster",
+    description:
+      "Turn any content into a podcast with AI-powered scripts and 30+ voices.",
+    url: "https://podcasts.apresai.dev",
+    siteName: "Podcaster",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Podcaster",
+    description:
+      "Turn any content into a podcast with AI-powered scripts and 30+ voices.",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({

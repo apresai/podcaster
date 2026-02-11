@@ -71,7 +71,7 @@ export function Nav() {
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-muted-foreground">
-            {session.user?.email}
+            {session.user?.name || session.user?.email}
           </span>
           <Button
             variant="ghost"

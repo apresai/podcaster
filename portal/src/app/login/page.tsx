@@ -23,7 +23,11 @@ export default function LoginPage() {
             </div>
             <CardTitle className="text-2xl">Podcaster</CardTitle>
             <CardDescription>
-              Sign in to manage your podcasts and API keys
+              Sign in to manage your podcasts and API keys.
+              <br />
+              <span className="text-xs text-muted-foreground/80">
+                New here? You&apos;ll create an account on the next screen.
+              </span>
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -31,7 +35,7 @@ export default function LoginPage() {
               className="w-full"
               onClick={() => signIn("cognito", { callbackUrl: "/dashboard" })}
             >
-              Sign in with Cognito
+              Continue with Cognito
             </Button>
           </CardContent>
         </Card>

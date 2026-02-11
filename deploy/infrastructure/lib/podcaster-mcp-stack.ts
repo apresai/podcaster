@@ -275,6 +275,11 @@ export class PodcasterMcpStack extends cdk.Stack {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           cachePolicy: staticCachePolicy,
         },
+        '*.webp': {
+          origin: s3StaticOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          cachePolicy: staticCachePolicy,
+        },
         '/audio/*': {
           origin: s3AudioOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
