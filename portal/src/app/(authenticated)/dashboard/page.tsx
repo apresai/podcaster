@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PodcastAudioControls } from "@/components/podcast-audio";
+import { Mic, DollarSign, KeyRound } from "lucide-react";
 import Link from "next/link";
 
 function statusColor(status: string) {
@@ -90,9 +92,13 @@ export default async function DashboardPage() {
 
       {/* Usage summary */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-1 bg-primary" />
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <div className="flex items-center justify-center size-8 rounded-lg bg-primary/10 text-primary">
+                <Mic className="size-4" />
+              </div>
               Podcasts this month
             </CardTitle>
           </CardHeader>
@@ -102,9 +108,13 @@ export default async function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-1 bg-primary" />
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <div className="flex items-center justify-center size-8 rounded-lg bg-primary/10 text-primary">
+                <DollarSign className="size-4" />
+              </div>
               Estimated cost
             </CardTitle>
           </CardHeader>
@@ -114,9 +124,13 @@ export default async function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-1 bg-primary" />
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <div className="flex items-center justify-center size-8 rounded-lg bg-primary/10 text-primary">
+                <KeyRound className="size-4" />
+              </div>
               Active API keys
             </CardTitle>
           </CardHeader>
@@ -155,26 +169,27 @@ export default async function DashboardPage() {
               {podcasts.map((p) => (
                 <div
                   key={p.podcastId}
-                  className="flex items-center justify-between rounded-lg border p-3"
+                  className="flex items-center justify-between rounded-lg border p-3 hover:bg-accent/30 transition-colors"
                 >
-                  <div className="space-y-1">
-                    <div className="font-medium">{p.title}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDate(p.createdAt)}
-                      {p.model && ` · ${p.model}`}
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center size-8 rounded-full bg-primary/10 text-primary shrink-0">
+                      <Mic className="size-4" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="font-medium">{p.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatDate(p.createdAt)}
+                        {p.model && ` · ${p.model}`}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={statusColor(p.status)}>{p.status}</Badge>
                     {p.audioUrl && (
-                      <a
-                        href={p.audioUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-primary hover:underline"
-                      >
-                        Listen
-                      </a>
+                      <PodcastAudioControls
+                        audioUrl={p.audioUrl}
+                        title={p.title || "podcast"}
+                      />
                     )}
                     {p.scriptUrl && (
                       <a

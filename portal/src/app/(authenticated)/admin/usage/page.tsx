@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { listAllPodcasts, listAllUsage, listUsers } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PodcastAudioControls } from "@/components/podcast-audio";
 import {
   Table,
   TableBody,
@@ -190,27 +191,25 @@ export default async function AdminUsagePage() {
                     <TableCell className="text-sm">
                       {formatDate(p.createdAt)}
                     </TableCell>
-                    <TableCell className="space-x-2">
-                      {p.audioUrl && (
-                        <a
-                          href={p.audioUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline"
-                        >
-                          Listen
-                        </a>
-                      )}
-                      {p.scriptUrl && (
-                        <a
-                          href={p.scriptUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline"
-                        >
-                          Script
-                        </a>
-                      )}
+                    <TableCell>
+                      <span className="flex items-center gap-2">
+                        {p.audioUrl && (
+                          <PodcastAudioControls
+                            audioUrl={p.audioUrl}
+                            title={p.title || "podcast"}
+                          />
+                        )}
+                        {p.scriptUrl && (
+                          <a
+                            href={p.scriptUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary hover:underline"
+                          >
+                            Script
+                          </a>
+                        )}
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
+import { WaveformLogo } from "@/components/waveform-logo";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -26,10 +27,14 @@ export function Nav() {
   const isAdmin = session.user?.role === "admin";
 
   return (
-    <nav className="border-b bg-card">
+    <nav className="sticky top-0 z-50 border-b border-border/40 bg-card/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-6xl items-center px-4 gap-6">
-        <Link href="/dashboard" className="font-semibold text-lg">
-          Podcaster
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2"
+        >
+          <WaveformLogo size={20} />
+          <span className="font-semibold text-lg text-primary">Podcaster</span>
         </Link>
         <div className="flex items-center gap-1">
           {navItems.map((item) => (
@@ -38,7 +43,7 @@ export function Nav() {
               href={item.href}
               className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                 pathname.startsWith(item.href)
-                  ? "bg-accent text-accent-foreground"
+                  ? "bg-primary/10 text-primary font-semibold"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
               }`}
             >
@@ -54,7 +59,7 @@ export function Nav() {
                   href={item.href}
                   className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                     pathname.startsWith(item.href)
-                      ? "bg-accent text-accent-foreground"
+                      ? "bg-primary/10 text-primary font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                   }`}
                 >
