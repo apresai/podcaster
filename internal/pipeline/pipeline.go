@@ -353,11 +353,11 @@ func Run(ctx context.Context, opts Options) error {
 			logf("  Content size: %d bytes", len(content.Text))
 		}
 
-		if content.WordCount < 100 {
+		if content.WordCount < ingest.MinWordCount {
 			logf("ERROR: input too short (%d words)", content.WordCount)
 			return &PipelineError{
 				Stage:   "ingest",
-				Message: fmt.Sprintf("input too short (%d words) — need at least 100 words to generate a meaningful conversation", content.WordCount),
+				Message: fmt.Sprintf("input too short (%d words, need at least %d) — the content may be behind a paywall, require JavaScript, or be mostly images; try a different URL or provide text directly", content.WordCount, ingest.MinWordCount),
 			}
 		}
 
