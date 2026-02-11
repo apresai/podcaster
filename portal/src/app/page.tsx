@@ -69,7 +69,7 @@ export default function Home() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <header className="fixed top-0 z-50 w-full border-b border-border/40 bg-white/80 backdrop-blur-md">
+      <header className="fixed top-0 z-50 w-full border-b border-border/40 bg-card/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <WaveformLogo size={22} />

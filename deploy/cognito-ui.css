@@ -1,0 +1,79 @@
+/* Podcaster Cognito Hosted UI — chalk grey + dark orange theme */
+
+.background-customizable {
+  background-color: #37383D;
+}
+
+.banner-customizable {
+  background-color: #FFFFFF;
+  padding: 24px 24px 0;
+}
+
+.submitButton-customizable {
+  background-color: #D98825;
+  border-color: #D98825;
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-size: 14px;
+}
+
+.submitButton-customizable:hover {
+  background-color: #B86E10;
+  border-color: #B86E10;
+  color: #FFFFFF;
+}
+
+.inputField-customizable {
+  border-color: #D1D5DB;
+  border-radius: 8px;
+  color: #1F2937;
+  background-color: #F9FAFB;
+}
+
+.inputField-customizable:focus {
+  border-color: #D98825;
+}
+
+.label-customizable {
+  color: #374151;
+  font-size: 14px;
+}
+
+.textDescription-customizable {
+  color: #6B7280;
+}
+
+.redirect-customizable {
+  color: #D98825;
+}
+
+.errorMessage-customizable {
+  color: #DC2626;
+}
+
+.legalText-customizable {
+  color: #9CA3AF;
+}
+
+.logo-customizable {
+  max-width: 200px;
+  max-height: 60px;
+}
+
+.idpButton-customizable {
+  background-color: #D98825;
+  border-color: #D98825;
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-size: 14px;
+}
+
+.idpButton-customizable:hover {
+  background-color: #B86E10;
+  border-color: #B86E10;
+  color: #FFFFFF;
+}
+
+.socialButton-customizable {
+  border-radius: 8px;
+}

@@ -419,6 +419,42 @@ curl -s ${MCP_ENDPOINT} \\
         <TabsContent value="examples" className="space-y-6 mt-6">
           <Card>
             <CardHeader>
+              <CardTitle>Sample prompts (Claude Code / Claude Desktop)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Once connected, just ask Claude in natural language. It will call
+                the right tools automatically.
+              </p>
+              <div className="space-y-3">
+                {[
+                  "Make a podcast from https://example.com/blog-post",
+                  "Turn this article into a short podcast: https://arxiv.org/abs/2401.00001",
+                  "Generate a deep-dive podcast about quantum computing from this paper, with a technical tone",
+                  "Create a debate-style podcast from this URL, keep it short",
+                  "What's the status of my last podcast?",
+                  "List my recent podcasts",
+                  "What voices and formats are available?",
+                ].map((prompt) => (
+                  <div
+                    key={prompt}
+                    className="rounded-lg border bg-muted/50 px-4 py-3 text-sm"
+                  >
+                    &ldquo;{prompt}&rdquo;
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Claude will pick sensible defaults for model, TTS provider, and
+                duration. Add specifics like &ldquo;short&rdquo;,
+                &ldquo;debate format&rdquo;, or &ldquo;technical tone&rdquo; to
+                customize.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>API key examples (curl)</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
