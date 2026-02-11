@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { listUserPodcasts, listAPIKeys, getMonthlyUsage } from "@/lib/db";
+import { listUserPodcasts, listAPIKeys } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ function formatDate(iso: string) {
   });
 }
 
-function formatCost(cost: number | undefined) {
+function formatCost(cost: number | undefined | null) {
   if (cost === undefined || cost === null) return "—";
   return `$${cost.toFixed(2)}`;
 }
@@ -70,15 +70,21 @@ export default async function DashboardPage() {
     );
   }
 
-  const [podcasts, keys, usage] = await Promise.all([
-    listUserPodcasts(session.user.id, 5),
+  const [allPodcasts, keys] = await Promise.all([
+    listUserPodcasts(session.user.id, 100),
     listAPIKeys(session.user.id),
-    getMonthlyUsage(
-      session.user.id,
-      new Date().toISOString().slice(0, 7)
-    ),
   ]);
 
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const thisMonthPodcasts = allPodcasts.filter(
+    (p) => p.createdAt?.startsWith(currentMonth)
+  );
+  const podcastCount = thisMonthPodcasts.length;
+  const totalCostUSD = thisMonthPodcasts.reduce(
+    (sum, p) => sum + (p.estimatedCostUSD ?? 0),
+    0
+  );
+  const podcasts = allPodcasts.slice(0, 5);
   const activeKeys = keys.filter((k) => k.status === "active");
 
   return (
@@ -104,7 +110,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {usage?.podcastCount ?? 0}
+              {podcastCount}
             </div>
           </CardContent>
         </Card>
@@ -120,7 +126,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCost(usage?.totalCostUSD)}
+              {formatCost(totalCostUSD)}
             </div>
           </CardContent>
         </Card>
