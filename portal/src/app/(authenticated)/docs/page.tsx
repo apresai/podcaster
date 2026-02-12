@@ -264,7 +264,7 @@ curl -s ${MCP_ENDPOINT} \\
                       <td className="px-4 py-2">
                         Script generation LLM (writes the conversation): haiku
                         (default, Claude Haiku 4.5), sonnet, gemini-flash,
-                        gemini-pro
+                        gemini-pro, nova-lite
                       </td>
                     </tr>
                     <tr className="border-b">
@@ -274,7 +274,7 @@ curl -s ${MCP_ENDPOINT} \\
                       <td className="px-4 py-2">
                         Text-to-speech provider (synthesizes audio): gemini
                         (default), gemini-vertex, vertex-express, elevenlabs,
-                        google
+                        google, polly
                       </td>
                     </tr>
                     <tr className="border-b">

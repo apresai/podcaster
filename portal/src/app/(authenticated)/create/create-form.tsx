@@ -72,6 +72,7 @@ const MODELS = [
   { value: "sonnet", label: "Sonnet (quality)" },
   { value: "gemini-flash", label: "Gemini Flash" },
   { value: "gemini-pro", label: "Gemini Pro" },
+  { value: "nova-lite", label: "Nova Lite (cheapest)" },
 ];
 
 const TTS_PROVIDERS = [
@@ -80,6 +81,7 @@ const TTS_PROVIDERS = [
   { value: "gemini-vertex", label: "Vertex AI" },
   { value: "elevenlabs", label: "ElevenLabs" },
   { value: "google", label: "Google Cloud TTS" },
+  { value: "polly", label: "AWS Polly" },
 ];
 
 const DURATIONS = [
