@@ -101,7 +101,7 @@ func handler(ctx context.Context, req events.LambdaFunctionURLRequest) (events.L
 		AgentRuntimeArn: &runtimeARN,
 		Payload:         body,
 		ContentType:     aws.String("application/json"),
-		Accept:          aws.String("application/json"),
+		Accept:          aws.String("application/json, text/event-stream"),
 	}
 	if mcpSessionID != "" {
 		input.McpSessionId = &mcpSessionID

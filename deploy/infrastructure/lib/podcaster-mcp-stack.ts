@@ -164,6 +164,19 @@ export class PodcasterMcpStack extends cdk.Stack {
       this, 'NextAuthSecret', '/podcaster/portal/NEXTAUTH_SECRET',
     );
 
+    // CDK-managed: auto-generates a 64-char hex string (32 bytes) for AES-256-GCM
+    const portalEncryptionSecret = new secretsmanager.Secret(this, 'PortalEncryptionSecret', {
+      secretName: '/podcaster/portal/PORTAL_ENCRYPTION_KEY',
+      generateSecretString: {
+        passwordLength: 64,
+        excludeUppercase: true,
+        excludePunctuation: true,
+        includeSpace: false,
+        excludeCharacters: 'ghijklmnopqrstuvwxyz',
+      },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     // --- Portal Static Assets Bucket ---
     const staticAssetsBucket = new s3.Bucket(this, 'PortalStaticAssets', {
       bucketName: `podcaster-portal-assets-${cdk.Aws.ACCOUNT_ID}`,
@@ -191,10 +204,12 @@ export class PodcasterMcpStack extends cdk.Stack {
         NEXTAUTH_SECRET: nextAuthSecret.secretValue.unsafeUnwrap(),
         AUTH_SECRET: nextAuthSecret.secretValue.unsafeUnwrap(),
         AUTH_TRUST_HOST: 'true',
+        PORTAL_ENCRYPTION_KEY: portalEncryptionSecret.secretValue.unsafeUnwrap(),
       },
     });
     table.grantReadWriteData(portalServerFn);
     nextAuthSecret.grantRead(portalServerFn);
+    portalEncryptionSecret.grantRead(portalServerFn);
 
     const portalFnUrl = portalServerFn.addFunctionUrl({
       authType: lambda.FunctionUrlAuthType.NONE,
@@ -234,12 +249,18 @@ export class PodcasterMcpStack extends cdk.Stack {
     // AgentCore: invoke the runtime
     mcpProxyFn.addToRolePolicy(new iam.PolicyStatement({
       actions: ['bedrock-agentcore:InvokeAgentRuntime'],
-      resources: ['arn:aws:bedrock-agentcore:us-east-1:228029809749:runtime/podcaster_mcp-t01dg1G007'],
+      resources: [
+        'arn:aws:bedrock-agentcore:us-east-1:228029809749:runtime/podcaster_mcp-t01dg1G007',
+        'arn:aws:bedrock-agentcore:us-east-1:228029809749:runtime/podcaster_mcp-t01dg1G007/*',
+      ],
     }));
 
     const mcpProxyFnUrl = mcpProxyFn.addFunctionUrl({
       authType: lambda.FunctionUrlAuthType.NONE,
     });
+
+    // Portal needs to call the MCP proxy on behalf of users
+    portalServerFn.addEnvironment('GATEWAY_URL', mcpProxyFnUrl.url);
 
     // --- CloudFront Distribution ---
     // Parse the Lambda Function URL domain from the full URL

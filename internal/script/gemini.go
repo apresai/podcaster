@@ -84,8 +84,10 @@ func (g *GeminiGenerator) Generate(ctx context.Context, content string, opts Gen
 
 	maxTokens := 8192
 	switch opts.Duration {
+	case "short":
+		maxTokens = 4096
 	case "long":
-		maxTokens = 24576
+		maxTokens = 16384
 	case "deep":
 		maxTokens = 32768
 	}

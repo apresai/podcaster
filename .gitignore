@@ -24,3 +24,7 @@ migrate-data
 
 # OpenNext build output
 portal/.open-next/
+.open-next/
+
+# Claude Code
+.claude/worktrees/

@@ -63,7 +63,7 @@ func ToolDefs() []mcp.Tool {
 					},
 					"duration": map[string]any{
 						"type":        "string",
-						"description": "Episode length: short (~8min), standard (~18min), long (~35min), deep (~55min)",
+						"description": "Episode length: short (~3-4min), standard (~8-10min), long (~15min), deep (~30-35min)",
 						"default":     "standard",
 					},
 					"format": map[string]any{
@@ -606,10 +606,10 @@ func (h *Handlers) HandleListOptions(ctx context.Context, req mcp.CallToolReques
 			{"name": "gemini-pro", "provider": "Google", "description": "Gemini 2.5 Pro"},
 		},
 		"durations": []map[string]any{
-			{"name": "short", "description": "~8 minutes, ~30 segments"},
-			{"name": "standard", "description": "~18 minutes, ~60 segments"},
-			{"name": "long", "description": "~35 minutes, ~100 segments"},
-			{"name": "deep", "description": "~55 minutes, ~200 segments"},
+			{"name": "short", "description": "~3-4 minutes, ~15 segments"},
+			{"name": "standard", "description": "~8-10 minutes, ~40 segments"},
+			{"name": "long", "description": "~15 minutes, ~65 segments"},
+			{"name": "deep", "description": "~30-35 minutes, ~150 segments"},
 		},
 	}
 	return jsonResult(result)

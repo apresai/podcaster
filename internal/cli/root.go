@@ -80,7 +80,7 @@ func init() {
 	generateCmd.Flags().StringVarP(&flagOutput, "output", "o", "", "Output file path (MP3)")
 	generateCmd.Flags().StringVarP(&flagTopic, "topic", "p", "", "Focus the conversation on a specific topic")
 	generateCmd.Flags().StringVarP(&flagTone, "tone", "n", "casual", "Conversation tone: casual, technical, educational")
-	generateCmd.Flags().StringVarP(&flagDuration, "duration", "d", "standard", "Target duration: short (~30 segs), standard (~60), long (~100), deep (~200)")
+	generateCmd.Flags().StringVarP(&flagDuration, "duration", "d", "standard", "Target duration: short (~3-4min), standard (~8-10min), long (~15min), deep (~30-35min)")
 	generateCmd.Flags().StringVarP(&flagStyle, "style", "s", "", "Conversation styles (comma-separated): humor, wow, serious, debate, storytelling")
 	generateCmd.Flags().StringVarP(&flagFormat, "format", "F", "conversation", "Show format: conversation, interview, deep-dive, explainer, debate, news, storytelling, challenger")
 	generateCmd.Flags().StringVarP(&flagVoice1, "voice1", "1", "", "Voice for host 1 / Alex (provider:voiceID or plain voiceID)")
