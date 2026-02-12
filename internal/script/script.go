@@ -52,8 +52,10 @@ func NewGenerator(model, apiKey string) (Generator, error) {
 		return NewClaudeGenerator(model, apiKey), nil
 	case "gemini-flash", "gemini-pro":
 		return NewGeminiGenerator(model, apiKey), nil
+	case "nova-lite":
+		return NewNovaGenerator(model)
 	default:
-		return nil, fmt.Errorf("unknown model %q: must be haiku, sonnet, gemini-flash, or gemini-pro", model)
+		return nil, fmt.Errorf("unknown model %q: must be haiku, sonnet, gemini-flash, gemini-pro, or nova-lite", model)
 	}
 }
 
@@ -62,8 +64,9 @@ func ModelDisplayName(model string) string {
 	names := map[string]string{
 		"haiku":        "claude-haiku-4-5-20251001",
 		"sonnet":       "claude-sonnet-4-5-20250929",
-		"gemini-flash": "gemini-2.5-flash",
-		"gemini-pro":   "gemini-2.5-pro",
+		"gemini-flash": "gemini-3-flash-preview",
+		"gemini-pro":   "gemini-3-pro-preview",
+		"nova-lite":    "us.amazon.nova-2-lite-v1:0",
 	}
 	if name, ok := names[model]; ok {
 		return name

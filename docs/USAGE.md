@@ -77,7 +77,7 @@ Generates a podcast episode from a URL or text input. The task runs asynchronous
 |-----------|------|---------|-------------|
 | `input_url` | string | -- | URL of content to convert into a podcast |
 | `input_text` | string | -- | Raw text to convert (alternative to `input_url`) |
-| `model` | string | `"haiku"` | Script generation LLM (writes the conversation): `haiku` (default, Claude Haiku 4.5), `sonnet`, `gemini-flash`, `gemini-pro` |
+| `model` | string | `"haiku"` | Script generation LLM (writes the conversation): `haiku` (default, Claude Haiku 4.5), `sonnet`, `gemini-flash` (Gemini 3), `gemini-pro` (Gemini 3), `nova-lite` (Amazon Nova 2 Lite, cheapest) |
 | `tts` | string | `"gemini"` | TTS provider (synthesizes audio): `gemini` (default), `gemini-vertex`, `vertex-express`, `elevenlabs`, `google` |
 | `tone` | string | `"casual"` | Conversation tone: `casual`, `technical`, `educational` |
 | `duration` | string | `"standard"` | Episode length: `short` (~3-4min), `standard` (~8-10min), `long` (~15min), `deep` (~30-35min) |
@@ -149,6 +149,7 @@ Costs depend on the script generation model and TTS provider used:
 
 | Model | TTS | Estimated Cost |
 |-------|-----|----------------|
+| `nova-lite` | `gemini` | ~$0.001-0.005 |
 | `gemini-flash` | `gemini` | ~$0.001-0.01 |
 | `haiku` | `gemini` | ~$0.01-0.05 |
 | `gemini-pro` | `gemini` | ~$0.02-0.15 |

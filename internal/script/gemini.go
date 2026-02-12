@@ -12,8 +12,8 @@ import (
 )
 
 var geminiModels = map[string]string{
-	"gemini-flash": "gemini-2.5-flash",
-	"gemini-pro":   "gemini-2.5-pro",
+	"gemini-flash": "gemini-3-flash-preview",
+	"gemini-pro":   "gemini-3-pro-preview",
 }
 
 const geminiGenerateEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent"

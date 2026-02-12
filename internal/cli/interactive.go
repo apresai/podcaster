@@ -446,8 +446,9 @@ func buildMenuItems(voiceCount int) []menuItem {
 			options: []menuOption{
 				{label: "Haiku 4.5 (fast, affordable) (default)", value: "haiku"},
 				{label: "Sonnet 4.5 (balanced)", value: "sonnet"},
-				{label: "Gemini Flash (fast)", value: "gemini-flash"},
-				{label: "Gemini Pro (powerful)", value: "gemini-pro"},
+				{label: "Gemini 3 Flash (fast)", value: "gemini-flash"},
+				{label: "Gemini 3 Pro (powerful)", value: "gemini-pro"},
+				{label: "Nova 2 Lite (cheapest, AWS)", value: "nova-lite"},
 			},
 		},
 		// 8: Voices

@@ -92,7 +92,7 @@ func init() {
 	generateCmd.Flags().BoolVarP(&flagVerbose, "verbose", "v", false, "Enable detailed logging")
 	generateCmd.Flags().BoolVarP(&flagTUI, "tui", "t", false, "Interactive setup wizard for generation options")
 	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "Text-to-speech audio provider (synthesizes voices): gemini (default), gemini-vertex, vertex-express, elevenlabs, google")
-	generateCmd.Flags().StringVarP(&flagModel, "model", "m", "haiku", "Script generation LLM (writes the conversation): haiku (default, Claude Haiku 4.5), sonnet, gemini-flash, gemini-pro")
+	generateCmd.Flags().StringVarP(&flagModel, "model", "m", "haiku", "Script generation LLM (writes the conversation): haiku (default, Claude Haiku 4.5), sonnet, gemini-flash, gemini-pro, nova-lite")
 	generateCmd.Flags().StringVar(&flagTTSModel, "tts-model", "", "TTS model ID (e.g., eleven_v3, gemini-2.5-flash-preview-tts)")
 	generateCmd.Flags().Float64Var(&flagTTSSpeed, "tts-speed", 0, "Speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0)")
 	generateCmd.Flags().Float64Var(&flagTTSStability, "tts-stability", 0, "Voice stability, ElevenLabs only (0.0-1.0)")
@@ -167,9 +167,9 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate model
-	validModels := map[string]bool{"haiku": true, "sonnet": true, "gemini-flash": true, "gemini-pro": true}
+	validModels := map[string]bool{"haiku": true, "sonnet": true, "gemini-flash": true, "gemini-pro": true, "nova-lite": true}
 	if !validModels[flagModel] {
-		return fmt.Errorf("invalid model %q: must be haiku, sonnet, gemini-flash, or gemini-pro", flagModel)
+		return fmt.Errorf("invalid model %q: must be haiku, sonnet, gemini-flash, gemini-pro, or nova-lite", flagModel)
 	}
 
 	// Validate TTS model if specified

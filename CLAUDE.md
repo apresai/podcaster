@@ -203,8 +203,9 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 |------------|----------|----------|
 | `haiku` (default) | `claude-haiku-4-5-20251001` | Anthropic |
 | `sonnet` | `claude-sonnet-4-5-20250929` | Anthropic |
-| `gemini-flash` | `gemini-2.5-flash` | Google |
-| `gemini-pro` | `gemini-2.5-pro` | Google |
+| `gemini-flash` | `gemini-3-flash-preview` | Google |
+| `gemini-pro` | `gemini-3-pro-preview` | Google |
+| `nova-lite` | `us.amazon.nova-2-lite-v1:0` | AWS Bedrock |
 
 ## TTS Providers
 

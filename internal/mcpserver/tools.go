@@ -48,7 +48,7 @@ func ToolDefs() []mcp.Tool {
 					},
 					"model": map[string]any{
 						"type":        "string",
-						"description": "Script generation LLM that writes the conversation. Always use haiku unless the user specifically asks for a different model. Options: haiku (default, Claude Haiku 4.5), sonnet (Claude Sonnet 4.5), gemini-flash (Gemini 2.5 Flash), gemini-pro (Gemini 2.5 Pro)",
+						"description": "Script generation LLM that writes the conversation. Always use haiku unless the user specifically asks for a different model. Options: haiku (default, Claude Haiku 4.5), sonnet (Claude Sonnet 4.5), gemini-flash (Gemini 3 Flash), gemini-pro (Gemini 3 Pro), nova-lite (Amazon Nova 2 Lite, cheapest)",
 						"default":     "haiku",
 					},
 					"tts": map[string]any{
@@ -602,8 +602,9 @@ func (h *Handlers) HandleListOptions(ctx context.Context, req mcp.CallToolReques
 		"models": []map[string]any{
 			{"name": "haiku", "provider": "Anthropic", "description": "Claude Haiku 4.5 (fastest, default)"},
 			{"name": "sonnet", "provider": "Anthropic", "description": "Claude Sonnet 4.5"},
-			{"name": "gemini-flash", "provider": "Google", "description": "Gemini 2.5 Flash"},
-			{"name": "gemini-pro", "provider": "Google", "description": "Gemini 2.5 Pro"},
+			{"name": "gemini-flash", "provider": "Google", "description": "Gemini 3 Flash"},
+			{"name": "gemini-pro", "provider": "Google", "description": "Gemini 3 Pro"},
+			{"name": "nova-lite", "provider": "AWS", "description": "Amazon Nova 2 Lite (cheapest, no API key needed)"},
 		},
 		"durations": []map[string]any{
 			{"name": "short", "description": "~3-4 minutes, ~15 segments"},
