@@ -75,6 +75,8 @@ func AvailableVoices(providerName string) ([]VoiceInfo, error) {
 		return googleAvailableVoices(), nil
 	case "gemini", "gemini-vertex", "vertex-express":
 		return geminiAvailableVoices(), nil
+	case "polly":
+		return pollyAvailableVoices(), nil
 	default:
 		return nil, fmt.Errorf("unknown TTS provider %q", providerName)
 	}
@@ -245,8 +247,10 @@ func NewProvider(name string, voice1, voice2, voice3 string, cfg ProviderConfig)
 		return NewVertexProvider(voice1, voice2, voice3, cfg)
 	case "vertex-express":
 		return NewVertexExpressProvider(voice1, voice2, voice3, cfg)
+	case "polly":
+		return NewPollyProvider(voice1, voice2, voice3, cfg)
 	default:
-		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, gemini, gemini-vertex, or vertex-express", name)
+		return nil, fmt.Errorf("unknown TTS provider %q: choose elevenlabs, google, gemini, gemini-vertex, vertex-express, or polly", name)
 	}
 }
 
@@ -257,7 +261,7 @@ func ParseVoiceSpec(spec string) (provider, voiceID string) {
 		prefix := spec[:i]
 		// Only treat as provider prefix if it's a known provider name
 		switch prefix {
-		case "elevenlabs", "gemini", "gemini-vertex", "vertex-express", "google":
+		case "elevenlabs", "gemini", "gemini-vertex", "vertex-express", "google", "polly":
 			return prefix, spec[i+1:]
 		}
 	}

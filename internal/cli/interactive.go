@@ -179,7 +179,7 @@ func buildVoiceOptionsForProvider(provider string) (opts []menuOption, defaultV1
 		return buildAllVoiceOptions()
 	}
 
-	prefixMap := map[string]string{"gemini": "GEM", "elevenlabs": "ELV", "google": "GOO"}
+	prefixMap := map[string]string{"gemini": "GEM", "elevenlabs": "ELV", "google": "GOO", "polly": "POL"}
 	prefix := prefixMap[provider]
 
 	for _, v := range voices {
@@ -210,6 +210,7 @@ func buildAllVoiceOptions() (opts []menuOption, defaultV1, defaultV2, defaultV3 
 		{"gemini", "GEM"},
 		{"elevenlabs", "ELV"},
 		{"google", "GOO"},
+		{"polly", "POL"},
 	}
 
 	effectiveTTS := flagTTS
@@ -262,6 +263,10 @@ func ttsModelOptions(provider string) []menuOption {
 		return []menuOption{
 			{label: "Flash TTS (fast, good quality) (default)", value: "gemini-2.5-flash-tts"},
 			{label: "Pro TTS (best quality, nuanced)", value: "gemini-2.5-pro-tts"},
+		}
+	case "polly":
+		return []menuOption{
+			{label: "Generative (fixed)", value: ""},
 		}
 	default:
 		return []menuOption{
@@ -500,6 +505,7 @@ func buildMenuItems(voiceCount int) []menuItem {
 			{label: "Vertex Express (API key, higher quotas)", value: "vertex-express"},
 			{label: "ElevenLabs (premium voices)", value: "elevenlabs"},
 			{label: "Google Cloud TTS (Chirp 3 HD)", value: "google"},
+			{label: "AWS Polly (Generative voices)", value: "polly"},
 		},
 	})
 

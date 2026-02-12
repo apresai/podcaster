@@ -53,7 +53,7 @@ func ToolDefs() []mcp.Tool {
 					},
 					"tts": map[string]any{
 						"type":        "string",
-						"description": "Text-to-speech provider that synthesizes audio: gemini (default), gemini-vertex, vertex-express, elevenlabs, google",
+						"description": "Text-to-speech provider that synthesizes audio: gemini (default), gemini-vertex, vertex-express, elevenlabs, google, polly",
 						"default":     "gemini",
 					},
 					"tone": map[string]any{
@@ -167,7 +167,7 @@ func ToolDefs() []mcp.Tool {
 				Properties: map[string]any{
 					"provider": map[string]any{
 						"type":        "string",
-						"description": "TTS provider name: gemini, vertex-express, gemini-vertex, elevenlabs, google",
+						"description": "TTS provider name: gemini, vertex-express, gemini-vertex, elevenlabs, google, polly",
 					},
 				},
 				Required: []string{"provider"},
@@ -547,7 +547,7 @@ func (h *Handlers) HandleListVoices(ctx context.Context, req mcp.CallToolRequest
 
 	voices, err := tts.AvailableVoices(provider)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("unknown provider %q: must be gemini, vertex-express, gemini-vertex, elevenlabs, or google", provider)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("unknown provider %q: must be gemini, vertex-express, gemini-vertex, elevenlabs, google, or polly", provider)), nil
 	}
 
 	voiceList := make([]map[string]any, 0, len(voices))
@@ -598,6 +598,7 @@ func (h *Handlers) HandleListOptions(ctx context.Context, req mcp.CallToolReques
 			{"name": "gemini-vertex", "auth": "GCP ADC/service account", "rate_limit": "30,000 RPM", "voices": "Same 30 Gemini voices"},
 			{"name": "elevenlabs", "auth": "API key (ELEVENLABS_API_KEY)", "rate_limit": "Varies by plan", "voices": "10+ ElevenLabs voices"},
 			{"name": "google", "auth": "GCP ADC/service account", "rate_limit": "150 RPM", "voices": "8 Chirp 3 HD voices"},
+			{"name": "polly", "auth": "AWS default credentials", "rate_limit": "Standard AWS limits", "voices": "7 Generative voices"},
 		},
 		"models": []map[string]any{
 			{"name": "haiku", "provider": "Anthropic", "description": "Claude Haiku 4.5 (fastest, default)"},

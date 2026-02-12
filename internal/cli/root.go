@@ -91,7 +91,7 @@ func init() {
 	generateCmd.Flags().StringVarP(&flagFromScript, "from-script", "f", "", "Generate audio from an existing script JSON file")
 	generateCmd.Flags().BoolVarP(&flagVerbose, "verbose", "v", false, "Enable detailed logging")
 	generateCmd.Flags().BoolVarP(&flagTUI, "tui", "t", false, "Interactive setup wizard for generation options")
-	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "Text-to-speech audio provider (synthesizes voices): gemini (default), gemini-vertex, vertex-express, elevenlabs, google")
+	generateCmd.Flags().StringVarP(&flagTTS, "tts", "T", "gemini", "Text-to-speech audio provider (synthesizes voices): gemini (default), gemini-vertex, vertex-express, elevenlabs, google, polly")
 	generateCmd.Flags().StringVarP(&flagModel, "model", "m", "haiku", "Script generation LLM (writes the conversation): haiku (default, Claude Haiku 4.5), sonnet, gemini-flash, gemini-pro, nova-lite")
 	generateCmd.Flags().StringVar(&flagTTSModel, "tts-model", "", "TTS model ID (e.g., eleven_v3, gemini-2.5-flash-preview-tts)")
 	generateCmd.Flags().Float64Var(&flagTTSSpeed, "tts-speed", 0, "Speech speed (ElevenLabs: 0.7-1.2, Google: 0.25-2.0)")
@@ -161,9 +161,9 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate TTS provider name
-	validProviders := map[string]bool{"elevenlabs": true, "google": true, "gemini": true, "gemini-vertex": true, "vertex-express": true}
+	validProviders := map[string]bool{"elevenlabs": true, "google": true, "gemini": true, "gemini-vertex": true, "vertex-express": true, "polly": true}
 	if !validProviders[flagTTS] {
-		return fmt.Errorf("invalid TTS provider %q: must be gemini, gemini-vertex, vertex-express, elevenlabs, or google", flagTTS)
+		return fmt.Errorf("invalid TTS provider %q: must be gemini, gemini-vertex, vertex-express, elevenlabs, google, or polly", flagTTS)
 	}
 
 	// Validate model
@@ -192,6 +192,8 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			}
 		case "gemini", "gemini-vertex", "vertex-express":
 			return fmt.Errorf("--tts-speed is not supported by Gemini TTS")
+		case "polly":
+			return fmt.Errorf("--tts-speed is not supported by AWS Polly")
 		}
 	}
 
@@ -308,6 +310,7 @@ func runListVoices(cmd *cobra.Command, args []string) error {
 		{"gemini-vertex", "GEMINI (Vertex AI)"},
 		{"elevenlabs", "ELEVENLABS"},
 		{"google", "GOOGLE CLOUD TTS"},
+		{"polly", "AWS POLLY (Generative)"},
 	}
 
 	fmt.Println("\nAvailable voices:")
@@ -380,6 +383,8 @@ func checkAPIKeys(ttsProviders []string, model string) error {
 				// GCP_PROJECT is validated in NewVertexProvider
 			case "google":
 				// Uses Application Default Credentials
+			case "polly":
+				// Uses AWS default credentials chain (no API key needed)
 			}
 		}
 	}

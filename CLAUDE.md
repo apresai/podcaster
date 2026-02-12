@@ -164,6 +164,7 @@ Use `/generate-persona` to create new personas for custom voices.
 | `GCP_REGION` | GCP region (default: us-central1) | `--tts gemini-vertex` (optional) |
 | ADC / `GOOGLE_APPLICATION_CREDENTIALS` | GCP OAuth2 | `--tts gemini-vertex` or `--tts google` |
 | `GCP_SERVICE_ACCOUNT_JSON` | Secrets Manager only | Auto-sets `GOOGLE_APPLICATION_CREDENTIALS` + `GCP_PROJECT` on AgentCore |
+| *(AWS default creds)* | AWS Polly (TTS) | `--tts polly` (no API key — uses AWS credential chain) |
 
 ## External Dependencies
 
@@ -216,6 +217,7 @@ Override with `--voice-alex <id>` and `--voice-sam <id>` flags.
 | `gemini-vertex` | Vertex AI (`{region}-aiplatform.googleapis.com`) | ADC/OAuth2 | 30,000 RPM | 500ms polite delay; requires `GCP_PROJECT` env var |
 | `elevenlabs` | ElevenLabs API | API key | Varies by plan | |
 | `google` | Cloud TTS gRPC (`texttospeech.googleapis.com`) | ADC/OAuth2 | 150 RPM | Chirp 3 HD voices (different from Gemini voices) |
+| `polly` | AWS Polly (`polly.{region}.amazonaws.com`) | AWS default creds | Standard AWS limits | Generative engine only, 7 English voices, MP3 output |
 
 All Gemini TTS providers (gemini, vertex-express, gemini-vertex) share the same voice names (Charon, Leda, Fenrir, etc.).
 
