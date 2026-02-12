@@ -119,7 +119,11 @@ podcaster/
 │       └── ffmpeg.go            # FFmpeg audio concatenation
 ├── portal/                      # Next.js web portal (OpenNext → Lambda + CloudFront)
 │   ├── src/app/                 # App Router pages + API routes
-│   ├── src/lib/db.ts            # DynamoDB operations
+│   │   ├── (authenticated)/     # Auth-gated pages (dashboard, create, api-keys, usage, docs)
+│   │   │   └── create/          # Create podcast page (form → MCP proxy → AgentCore)
+│   │   └── api/                 # API routes (keys, usage, generate, voices)
+│   ├── src/lib/db.ts            # DynamoDB operations + API key encryption
+│   ├── src/lib/mcp.ts           # MCP client (portal → proxy Lambda → AgentCore)
 │   └── open-next.config.ts      # OpenNext build configuration
 ├── deploy/
 │   ├── Dockerfile               # Multi-stage ARM64 container for MCP server
@@ -257,7 +261,7 @@ curl -s http://localhost:8000/mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/ca
 curl -s http://localhost:8000/mcp -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_podcast","arguments":{"podcast_id":"<id>"}}}' -H 'Content-Type: application/json' -H 'Mcp-Session-Id: <session_id>'
 ```
 
-**Cost-saving tip**: Use `gemini-flash` model + `short` duration for testing. This uses only Gemini API (no Anthropic costs) and generates ~8min/30 segments.
+**Cost-saving tip**: Use `gemini-flash` model + `short` duration for testing. This uses only Gemini API (no Anthropic costs) and generates ~3-4min/15 segments.
 
 ### MCP Proxy (Public Endpoint)
 
@@ -266,12 +270,33 @@ A thin Go Lambda at `cmd/mcp-proxy/main.go` acts as an auth proxy, served via Cl
 - Validates `Authorization: Bearer pk_...` API keys against DynamoDB
 - Injects `_user_id`/`_key_id` into `tools/call` arguments
 - Forwards to AgentCore via `invoke-agent-runtime` (SigV4, automatic via Lambda role)
+- Accepts `application/json, text/event-stream` responses (SSE support)
 - Returns AgentCore response to client
 
 **Build**: `make build-proxy` (produces `deploy/proxy-build/bootstrap`)
 **Test**: `make smoke-test-proxy API_KEY=pk_...`
 
 **CloudFront behavior**: `/mcp` -> proxy Lambda Function URL (POST, no caching, forwards Authorization header)
+
+### Portal Create Page
+
+The portal at `podcasts.apresai.dev/create` lets authenticated users generate podcasts directly from the browser:
+
+- Multi-step form: source URL/text → model + TTS → format + style + duration
+- Calls portal API routes (`/api/generate`, `/api/generate/[id]`, `/api/voices`)
+- Portal backend uses the user's encrypted API key to call the MCP proxy on their behalf
+- MCP client helper: `portal/src/lib/mcp.ts` — sends JSON-RPC to `GATEWAY_URL` (proxy Lambda Function URL)
+- `GATEWAY_URL` is injected into the portal Lambda by CDK (points to the proxy Lambda Function URL)
+
+### API Key Encryption
+
+API keys are encrypted at rest in DynamoDB using AES-256-GCM so the portal can decrypt them for server-side MCP calls:
+
+- **Encryption key**: CDK-managed Secrets Manager secret at `/podcaster/portal/PORTAL_ENCRYPTION_KEY` (64-char hex = 32 bytes)
+- **Portal Lambda env var**: `PORTAL_ENCRYPTION_KEY` (resolved at deploy time via `unsafeUnwrap()`)
+- **Storage format**: `iv:ciphertext:authTag` (all base64) in the `encryptedKey` field of the `APIKEY#` DynamoDB item
+- **Implementation**: `encryptAPIKey()` / `decryptAPIKey()` / `getActiveAPIKeyForUser()` in `portal/src/lib/db.ts`
+- Keys created before encryption was added won't have `encryptedKey` — users can revoke and recreate
 
 ### Deployment
 
@@ -317,7 +342,7 @@ AI Studio's strict rate limits are the bottleneck for the default `gemini` TTS p
 | Flash TTS (`gemini-2.5-flash-preview-tts`) | 10 | 10K | 100 |
 | Pro TTS (`gemini-2.5-pro-preview-tts`) | 10 | 10K | 50 |
 
-At 10 RPM, a 60-segment podcast uses 60 of 100 daily requests — barely 1 podcast/day.
+At 10 RPM, a 40-segment standard podcast uses 40 of 100 daily requests — about 2 podcasts/day.
 
 **Mitigations for `--tts gemini` on AgentCore:**
 - `DisableBatch=true` in `tasks.go` — per-segment mode with 7s throttle to stay under 10 RPM

@@ -73,7 +73,7 @@ podcaster audiobook -i book.pdf -o audiobook.mp3 --voice george --chapters
 
 ### Problem
 
-ElevenLabs TTS currently makes one HTTP request per script segment. A standard episode (~50 segments) means 50 sequential API calls. A deep dive (~200 segments) means 200 calls. This is slow (sequential to avoid rate limits), expensive in terms of connection overhead, and produces segments that lack prosody continuity — each segment starts from a "cold" vocal state with no awareness of what came before.
+ElevenLabs TTS currently makes one HTTP request per script segment. A standard episode (~40 segments) means 40 sequential API calls. A deep dive (~150 segments) means 150 calls. This is slow (sequential to avoid rate limits), expensive in terms of connection overhead, and produces segments that lack prosody continuity — each segment starts from a "cold" vocal state with no awareness of what came before.
 
 ### How It Works
 

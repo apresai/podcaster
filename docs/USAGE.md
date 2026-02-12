@@ -80,7 +80,7 @@ Generates a podcast episode from a URL or text input. The task runs asynchronous
 | `model` | string | `"haiku"` | Script generation LLM (writes the conversation): `haiku` (default, Claude Haiku 4.5), `sonnet`, `gemini-flash`, `gemini-pro` |
 | `tts` | string | `"gemini"` | TTS provider (synthesizes audio): `gemini` (default), `gemini-vertex`, `vertex-express`, `elevenlabs`, `google` |
 | `tone` | string | `"casual"` | Conversation tone: `casual`, `technical`, `educational` |
-| `duration` | string | `"standard"` | Episode length: `short` (~8min), `standard` (~18min), `long` (~35min), `deep` (~55min) |
+| `duration` | string | `"standard"` | Episode length: `short` (~3-4min), `standard` (~8-10min), `long` (~15min), `deep` (~30-35min) |
 | `format` | string | `"conversation"` | Show format (see below) |
 | `voices` | integer | `2` | Number of hosts (1-3) |
 | `topic` | string | -- | Focus topic to emphasize in the conversation |

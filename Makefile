@@ -42,7 +42,7 @@ docker-build:
 	@# Copy SDK into build context temporarily
 	rm -rf deploy/sdk
 	cp -r ../apresai.dev/sdk deploy/sdk
-	docker buildx build --platform linux/arm64 -f deploy/Dockerfile -t $(ECR_REPO):latest --load .
+	docker build --platform linux/arm64 -f deploy/Dockerfile -t $(ECR_REPO):latest .
 	rm -rf deploy/sdk
 
 docker-push: docker-build
