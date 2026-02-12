@@ -282,8 +282,8 @@ curl -s ${MCP_ENDPOINT} \\
                       <td className="px-4 py-2">string</td>
                       <td className="px-4 py-2">No</td>
                       <td className="px-4 py-2">
-                        short (~8min), standard (~18min), long (~35min), deep
-                        (~55min)
+                        short (~3-4min), standard (~8-10min), long (~15min),
+                        deep (~30-35min)
                       </td>
                     </tr>
                     <tr className="border-b">
@@ -308,7 +308,7 @@ curl -s ${MCP_ENDPOINT} \\
                       <td className="px-4 py-2">string</td>
                       <td className="px-4 py-2">No</td>
                       <td className="px-4 py-2">
-                        Tone of the conversation (e.g. casual, technical)
+                        casual (default), technical, educational
                       </td>
                     </tr>
                   </tbody>
@@ -412,6 +412,64 @@ curl -s ${MCP_ENDPOINT} \\
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>list_voices</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                List available voices for a TTS provider. Use this to discover
+                voice names before generating a podcast with custom voice
+                selections.
+              </p>
+              <h4 className="font-semibold text-sm">Parameters</h4>
+              <div className="rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="px-4 py-2 text-left font-medium">
+                        Name
+                      </th>
+                      <th className="px-4 py-2 text-left font-medium">
+                        Type
+                      </th>
+                      <th className="px-4 py-2 text-left font-medium">
+                        Required
+                      </th>
+                      <th className="px-4 py-2 text-left font-medium">
+                        Description
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-4 py-2 font-mono">provider</td>
+                      <td className="px-4 py-2">string</td>
+                      <td className="px-4 py-2">Yes</td>
+                      <td className="px-4 py-2">
+                        TTS provider to list voices for: gemini,
+                        vertex-express, gemini-vertex, elevenlabs, google,
+                        polly
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>list_options</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                List all available formats, styles, TTS providers, script
+                generation models, and durations. No parameters required.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

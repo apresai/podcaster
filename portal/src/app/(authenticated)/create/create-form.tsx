@@ -85,10 +85,10 @@ const TTS_PROVIDERS = [
 ];
 
 const DURATIONS = [
-  { value: "short", label: "Short (~8 min)" },
-  { value: "standard", label: "Standard (~18 min)" },
-  { value: "long", label: "Long (~35 min)" },
-  { value: "deep", label: "Deep (~55 min)" },
+  { value: "short", label: "Short (~3-4 min)" },
+  { value: "standard", label: "Standard (~8-10 min)" },
+  { value: "long", label: "Long (~15 min)" },
+  { value: "deep", label: "Deep (~30-35 min)" },
 ];
 
 const TONES = [
@@ -105,7 +105,7 @@ export function CreatePodcastForm() {
     inputUrl: "",
     inputText: "",
     format: "conversation",
-    model: "gemini-flash",
+    model: "haiku",
     tts: "gemini",
     duration: "short",
     tone: "casual",
@@ -686,7 +686,7 @@ export function CreatePodcastForm() {
               </>
             )}
 
-            {status.status === "completed" || status.status === "complete" && status.audio_url && (
+            {(status.status === "completed" || status.status === "complete") && status.audio_url && (
               <div className="space-y-4">
                 <audio controls className="w-full" src={status.audio_url} />
                 <a
