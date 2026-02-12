@@ -274,13 +274,13 @@ Convert the following content into a %s.
 func durationToSegments(duration string) string {
 	switch duration {
 	case "short":
-		return "Exactly 30 segments (~8 minutes of audio)"
+		return "Exactly 15 segments (~3-4 minutes of audio). Keep segments to 1-2 sentences max. Be ruthlessly selective — cover only the 2-3 most important points. No tangents. Quick intro, focused discussion, brief wrap-up."
 	case "long":
-		return "Exactly 100 segments (~35 minutes of audio)"
+		return "Exactly 65 segments (~15 minutes of audio). Full exploration. 2-3 sentences per segment. Cover all significant points with detailed analysis and examples."
 	case "deep":
-		return "Exactly 200 segments (~55 minutes of audio). This is a DEEP DIVE — cover every major point thoroughly, explore tangents, include extended exchanges."
+		return "Exactly 150 segments (~30-35 minutes of audio). Exhaustive coverage. 2-3 sentences per segment. Cover every significant point. Go beyond the source material — draw connections to broader context, historical precedents, competing perspectives, and implications the source doesn't address. Extended back-and-forth exchanges where hosts genuinely wrestle with complexity."
 	default: // standard (also covers "medium" alias)
-		return "Exactly 60 segments (~18 minutes of audio)"
+		return "Exactly 40 segments (~8-10 minutes of audio). Standard pacing. 1-3 sentences per segment. Cover the main themes with enough depth to be satisfying."
 	}
 }
 
@@ -288,13 +288,13 @@ func durationToSegments(duration string) string {
 func TargetSegments(duration string) int {
 	switch duration {
 	case "short":
-		return 30
+		return 15
 	case "long":
-		return 100
+		return 65
 	case "deep":
-		return 200
+		return 150
 	default:
-		return 60
+		return 40
 	}
 }
 
@@ -304,11 +304,34 @@ func styleDescription(styles []string, format string) string {
 	}
 
 	descriptions := map[string]string{
-		"humor":        "Inject witty banter, clever one-liners, playful comebacks, running jokes, and lighthearted disagreements. Make listeners smile.",
-		"wow":          "Use build-up → dramatic reveal structure. Include surprise reactions ('Wait, seriously?'), mind-blown moments, and genuine awe at revelations.",
-		"serious":      "Maintain measured gravitas. Include reflective pauses, avoid jokes, convey the weight of stakes ('The implications are profound').",
-		"debate":       "Hosts should disagree, push back, present alternatives. Include passionate advocacy and occasional concessions. Real intellectual tension.",
-		"storytelling": "Build a narrative arc with suspense and foreshadowing. Use 'What happened next?' moments, vivid scene-setting, and cliffhangers between segments.",
+		"humor": `Use observational wit, absurd comparisons, playful exaggeration, and self-deprecating analogies. ` +
+			`Not every segment needs a joke — aim for a laugh-worthy moment every 4-6 segments, with lighter wit throughout. ` +
+			`Introduce a callback joke early and return to it 2-3 times across the episode. ` +
+			`Never force humor onto genuinely serious data points (deaths, layoffs, etc.) — humor works best when it earns contrast against substance. ` +
+			`Hosts teasing each other's takes is funnier than rehearsed one-liners.`,
+
+		"wow": `Telegraph that something surprising is coming ("here's where it gets wild"), then deliver the reveal, then let the hosts react genuinely. ` +
+			`Space out 2-3 major "wow" moments per episode — build valleys of context between peaks of revelation. ` +
+			`Vary reactions: don't just say "Wait, seriously?" — use stunned silence (a short segment), connecting dots ("so that means..."), or disbelief ("I had to read that twice"). ` +
+			`If every segment is a revelation, nothing is. Reserve genuine awe for the most striking facts. ` +
+			`Plant hints early that pay off later ("remember that number? It's about to matter").`,
+
+		"serious": `Use longer, more deliberate sentences. Let points land before moving on. Use segment breaks as silence for weight. ` +
+			`Adopt a slightly more formal register — "significant" not "wild", "profound" not "crazy". ` +
+			`Ground every topic in real-world consequences — who gets hurt, what's at risk, what could go wrong. ` +
+			`Gravitas is not monotony — vary intensity so some segments are quiet reflection and others carry urgent weight. ` +
+			`No humor, no playful banter, no lighthearted asides. If something is inherently absurd, acknowledge the absurdity without making it a joke.`,
+
+		"debate": `One host makes a claim → the other pushes back with a specific counter-argument or counter-evidence → the first host either concedes or strengthens their position. ` +
+			`Concessions matter: the pushback should sometimes work. A host changing their mind mid-episode ("okay, you convinced me on that one") feels more real than two immovable positions. ` +
+			`Start with mild disagreements and build to the central fault line in the material. ` +
+			`Don't be mean-spirited or dismissive — challenge ideas, not the other host's intelligence. "I see it differently" not "that's wrong".`,
+
+		"storytelling": `Identify the strongest narrative thread in the source material and use it as a spine — other points hang off this thread. ` +
+			`Use vivid "imagine this..." or "picture the scene..." moments to ground abstract concepts in concrete situations. ` +
+			`Reference earlier points later in the episode ("remember when we said X? That's exactly what happened here"). ` +
+			`Before revealing an outcome, pause to explore what was at stake or what could have gone differently. ` +
+			`Don't sacrifice factual accuracy for narrative drama — the story should emerge naturally from the material, not be imposed on it.`,
 	}
 
 	// Deduplicate: skip style if it's redundant with the format
