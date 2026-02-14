@@ -155,6 +155,9 @@ export class PodcasterMcpStack extends cdk.Stack {
           'http://localhost:3000',
         ],
       },
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.days(365),
     });
 
     // --- Portal Secrets ---
