@@ -23,7 +23,7 @@ import {
 import type { User } from "@/lib/db";
 
 function formatDate(iso: string | undefined) {
-  if (!iso) return "—";
+  if (!iso) return "\u2014";
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -44,11 +44,22 @@ function statusBadge(status: string) {
   }
 }
 
+function roleBadge(role: string) {
+  switch (role) {
+    case "admin":
+      return "default" as const;
+    case "creator":
+      return "secondary" as const;
+    default:
+      return "outline" as const;
+  }
+}
+
 export function UserTable({ initialUsers }: { initialUsers: User[] }) {
   const [users, setUsers] = useState(initialUsers);
   const [confirmAction, setConfirmAction] = useState<{
     userId: string;
-    action: "approve" | "suspend";
+    action: "approve" | "suspend" | "promote" | "demote";
   } | null>(null);
 
   async function handleAction(userId: string, action: "approve" | "suspend") {
@@ -63,6 +74,18 @@ export function UserTable({ initialUsers }: { initialUsers: User[] }) {
     setConfirmAction(null);
   }
 
+  async function handleRoleChange(userId: string, role: "user" | "creator") {
+    await fetch(`/api/admin/users/${userId}/role`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    setUsers((prev) =>
+      prev.map((u) => (u.userId === userId ? { ...u, role } : u))
+    );
+    setConfirmAction(null);
+  }
+
   return (
     <>
       <Table>
@@ -71,8 +94,8 @@ export function UserTable({ initialUsers }: { initialUsers: User[] }) {
             <TableHead>Email</TableHead>
             <TableHead>Name</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Created</TableHead>
+            <TableHead className="hidden sm:table-cell">Role</TableHead>
+            <TableHead className="hidden sm:table-cell">Created</TableHead>
             <TableHead></TableHead>
           </TableRow>
         </TableHeader>
@@ -84,8 +107,10 @@ export function UserTable({ initialUsers }: { initialUsers: User[] }) {
               <TableCell>
                 <Badge variant={statusBadge(user.status)}>{user.status}</Badge>
               </TableCell>
-              <TableCell className="text-sm">{user.role}</TableCell>
-              <TableCell className="text-sm">
+              <TableCell className="hidden sm:table-cell">
+                <Badge variant={roleBadge(user.role)}>{user.role}</Badge>
+              </TableCell>
+              <TableCell className="hidden sm:table-cell text-sm">
                 {formatDate(user.createdAt)}
               </TableCell>
               <TableCell>
@@ -112,8 +137,8 @@ export function UserTable({ initialUsers }: { initialUsers: User[] }) {
                           <DialogTitle>Approve user</DialogTitle>
                           <DialogDescription>
                             Approve {user.email} for access to Podcaster? They
-                            will be able to create API keys and generate
-                            podcasts.
+                            will get read-only access. You can promote them to
+                            creator later.
                           </DialogDescription>
                         </DialogHeader>
                         <DialogFooter>
@@ -129,6 +154,93 @@ export function UserTable({ initialUsers }: { initialUsers: User[] }) {
                             }
                           >
                             Approve
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                  {user.status === "active" && user.role === "user" && (
+                    <Dialog
+                      open={
+                        confirmAction?.userId === user.userId &&
+                        confirmAction?.action === "promote"
+                      }
+                      onOpenChange={(open) =>
+                        setConfirmAction(
+                          open
+                            ? { userId: user.userId, action: "promote" }
+                            : null
+                        )
+                      }
+                    >
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="outline">Promote</Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Promote to creator</DialogTitle>
+                          <DialogDescription>
+                            Promote {user.email} to creator? They will be able
+                            to create API keys and generate podcasts.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setConfirmAction(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={() =>
+                              handleRoleChange(user.userId, "creator")
+                            }
+                          >
+                            Promote
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                  {user.status === "active" && user.role === "creator" && (
+                    <Dialog
+                      open={
+                        confirmAction?.userId === user.userId &&
+                        confirmAction?.action === "demote"
+                      }
+                      onOpenChange={(open) =>
+                        setConfirmAction(
+                          open
+                            ? { userId: user.userId, action: "demote" }
+                            : null
+                        )
+                      }
+                    >
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="outline">Demote</Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Demote to user</DialogTitle>
+                          <DialogDescription>
+                            Demote {user.email} to read-only user? They will
+                            lose the ability to create podcasts and API keys.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setConfirmAction(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            onClick={() =>
+                              handleRoleChange(user.userId, "user")
+                            }
+                          >
+                            Demote
                           </Button>
                         </DialogFooter>
                       </DialogContent>

@@ -374,6 +374,21 @@ export class PodcasterMcpStack extends cdk.Stack {
       ],
     }));
 
+    // Bedrock InvokeModel (Nova Lite script generation — cross-region inference profile)
+    agentCoreRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: [
+        `arn:aws:bedrock:*::foundation-model/amazon.nova-*`,
+        `arn:aws:bedrock:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:inference-profile/us.amazon.nova-*`,
+      ],
+    }));
+
+    // AWS Polly TTS
+    agentCoreRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['polly:SynthesizeSpeech'],
+      resources: ['*'],
+    }));
+
     // CloudWatch Logs
     agentCoreRole.addToPolicy(new iam.PolicyStatement({
       actions: [

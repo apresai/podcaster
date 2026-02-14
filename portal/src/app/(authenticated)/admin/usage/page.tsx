@@ -69,7 +69,7 @@ export default async function AdminUsagePage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">All usage</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold">All usage</h1>
         <p className="mt-1 text-muted-foreground">
           Usage across all users
         </p>
@@ -126,7 +126,7 @@ export default async function AdminUsagePage() {
                   <TableHead>User</TableHead>
                   <TableHead>Month</TableHead>
                   <TableHead>Podcasts</TableHead>
-                  <TableHead>Duration</TableHead>
+                  <TableHead className="hidden sm:table-cell">Duration</TableHead>
                   <TableHead>Cost</TableHead>
                 </TableRow>
               </TableHeader>
@@ -138,7 +138,7 @@ export default async function AdminUsagePage() {
                     </TableCell>
                     <TableCell>{u.month}</TableCell>
                     <TableCell>{u.podcastCount}</TableCell>
-                    <TableCell>{formatDuration(u.totalDurationSec)}</TableCell>
+                    <TableCell className="hidden sm:table-cell">{formatDuration(u.totalDurationSec)}</TableCell>
                     <TableCell>{formatCost(u.totalCostUSD)}</TableCell>
                   </TableRow>
                 ))}
@@ -162,10 +162,10 @@ export default async function AdminUsagePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  <TableHead>User</TableHead>
+                  <TableHead className="hidden sm:table-cell">User</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Model</TableHead>
-                  <TableHead>Cost</TableHead>
+                  <TableHead className="hidden sm:table-cell">Model</TableHead>
+                  <TableHead className="hidden sm:table-cell">Cost</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
@@ -176,16 +176,16 @@ export default async function AdminUsagePage() {
                     <TableCell className="font-medium max-w-[200px] truncate">
                       {p.title}
                     </TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="hidden sm:table-cell text-sm">
                       {userName(p.userId)}
                     </TableCell>
                     <TableCell>
                       <Badge variant={statusColor(p.status)}>{p.status}</Badge>
                     </TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="hidden sm:table-cell text-sm">
                       {p.model || "\u2014"}
                     </TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="hidden sm:table-cell text-sm">
                       {formatCost(p.estimatedCostUSD)}
                     </TableCell>
                     <TableCell className="text-sm">

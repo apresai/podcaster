@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { auth, canCreate } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { listMonthlyUsage, listUserPodcasts } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 
 function formatDate(iso: string) {
-  if (!iso) return "—";
+  if (!iso) return "\u2014";
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -23,14 +23,14 @@ function formatDate(iso: string) {
 }
 
 function formatDuration(seconds: number) {
-  if (!seconds) return "—";
+  if (!seconds) return "\u2014";
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}m ${secs}s`;
 }
 
 function formatCost(cost: number | undefined) {
-  if (cost === undefined || cost === null) return "—";
+  if (cost === undefined || cost === null) return "\u2014";
   return `$${cost.toFixed(2)}`;
 }
 
@@ -52,6 +52,10 @@ export default async function UsagePage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
+  if (!canCreate(session.user.role)) {
+    redirect("/dashboard");
+  }
+
   const [usage, podcasts] = await Promise.all([
     listMonthlyUsage(session.user.id),
     listUserPodcasts(session.user.id, 50),
@@ -60,7 +64,7 @@ export default async function UsagePage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">Usage</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold">Usage</h1>
         <p className="mt-1 text-muted-foreground">
           Your monthly usage and podcast history
         </p>
@@ -82,7 +86,7 @@ export default async function UsagePage() {
                 <TableRow>
                   <TableHead>Month</TableHead>
                   <TableHead>Podcasts</TableHead>
-                  <TableHead>Total duration</TableHead>
+                  <TableHead className="hidden sm:table-cell">Total duration</TableHead>
                   <TableHead>Estimated cost</TableHead>
                 </TableRow>
               </TableHeader>
@@ -91,7 +95,7 @@ export default async function UsagePage() {
                   <TableRow key={u.month}>
                     <TableCell className="font-medium">{u.month}</TableCell>
                     <TableCell>{u.podcastCount}</TableCell>
-                    <TableCell>{formatDuration(u.totalDurationSec)}</TableCell>
+                    <TableCell className="hidden sm:table-cell">{formatDuration(u.totalDurationSec)}</TableCell>
                     <TableCell>{formatCost(u.totalCostUSD)}</TableCell>
                   </TableRow>
                 ))}
@@ -112,63 +116,65 @@ export default async function UsagePage() {
               No podcasts yet.
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Model</TableHead>
-                  <TableHead>TTS</TableHead>
-                  <TableHead>Cost</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {podcasts.map((p) => (
-                  <TableRow key={p.podcastId}>
-                    <TableCell className="font-medium max-w-[200px] truncate">
-                      {p.title}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusColor(p.status)}>{p.status}</Badge>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {p.model || "—"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {p.ttsProvider || "—"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {formatCost(p.estimatedCostUSD)}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {formatDate(p.createdAt)}
-                    </TableCell>
-                    <TableCell>
-                      <span className="flex items-center gap-2">
-                        {p.audioUrl && (
-                          <PodcastAudioControls
-                            audioUrl={p.audioUrl}
-                            title={p.title || "podcast"}
-                          />
-                        )}
-                        {p.scriptUrl && (
-                          <a
-                            href={p.scriptUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-primary hover:underline"
-                          >
-                            Script
-                          </a>
-                        )}
-                      </span>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="hidden sm:table-cell">Model</TableHead>
+                    <TableHead className="hidden sm:table-cell">TTS</TableHead>
+                    <TableHead className="hidden sm:table-cell">Cost</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {podcasts.map((p) => (
+                    <TableRow key={p.podcastId}>
+                      <TableCell className="font-medium max-w-[200px] truncate">
+                        {p.title}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusColor(p.status)}>{p.status}</Badge>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm">
+                        {p.model || "\u2014"}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm">
+                        {p.ttsProvider || "\u2014"}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm">
+                        {formatCost(p.estimatedCostUSD)}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {formatDate(p.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        <span className="flex items-center gap-2">
+                          {p.audioUrl && (
+                            <PodcastAudioControls
+                              audioUrl={p.audioUrl}
+                              title={p.title || "podcast"}
+                            />
+                          )}
+                          {p.scriptUrl && (
+                            <a
+                              href={p.scriptUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-primary hover:underline"
+                            >
+                              Script
+                            </a>
+                          )}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -26,19 +26,21 @@ export default function DocsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">Documentation</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold">Documentation</h1>
         <p className="mt-1 text-muted-foreground">
           Learn how to use Podcaster with your AI assistant
         </p>
       </div>
 
       <Tabs defaultValue="getting-started">
-        <TabsList>
-          <TabsTrigger value="getting-started">Getting started</TabsTrigger>
-          <TabsTrigger value="architecture">Architecture</TabsTrigger>
-          <TabsTrigger value="tools">Tools reference</TabsTrigger>
-          <TabsTrigger value="examples">Examples</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto">
+          <TabsList>
+            <TabsTrigger value="getting-started">Getting started</TabsTrigger>
+            <TabsTrigger value="architecture">Architecture</TabsTrigger>
+            <TabsTrigger value="tools">Tools reference</TabsTrigger>
+            <TabsTrigger value="examples">Examples</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="getting-started" className="space-y-6 mt-6">
           <Card>
@@ -222,7 +224,7 @@ curl -s ${MCP_ENDPOINT} \\
                 immediately with a podcast ID for polling.
               </p>
               <h4 className="font-semibold text-sm">Parameters</h4>
-              <div className="rounded-lg border">
+              <div className="rounded-lg border overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
@@ -332,7 +334,7 @@ curl -s ${MCP_ENDPOINT} \\
                 <InlineCode>script_url</InlineCode> fields.
               </p>
               <h4 className="font-semibold text-sm">Parameters</h4>
-              <div className="rounded-lg border">
+              <div className="rounded-lg border overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
@@ -374,7 +376,7 @@ curl -s ${MCP_ENDPOINT} \\
                 List your recent podcasts, newest first.
               </p>
               <h4 className="font-semibold text-sm">Parameters</h4>
-              <div className="rounded-lg border">
+              <div className="rounded-lg border overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
@@ -426,7 +428,7 @@ curl -s ${MCP_ENDPOINT} \\
                 selections.
               </p>
               <h4 className="font-semibold text-sm">Parameters</h4>
-              <div className="rounded-lg border">
+              <div className="rounded-lg border overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">

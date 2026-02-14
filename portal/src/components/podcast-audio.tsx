@@ -68,14 +68,14 @@ export function PodcastAudioControls({
         aria-label={isPlaying ? "Pause" : "Play"}
       >
         {isPlaying ? (
-          <Pause className="size-3" />
+          <Pause className="size-4 sm:size-3" />
         ) : (
-          <Play className="size-3" />
+          <Play className="size-4 sm:size-3" />
         )}
       </Button>
       <Button variant="ghost" size="icon-xs" asChild>
         <a href={audioUrl} download={filename} aria-label="Download">
-          <Download className="size-3" />
+          <Download className="size-4 sm:size-3" />
         </a>
       </Button>
     </span>

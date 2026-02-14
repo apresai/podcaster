@@ -19,7 +19,7 @@ export interface User {
   email: string;
   name: string;
   status: "pending" | "active" | "suspended";
-  role: "user" | "admin";
+  role: "user" | "creator" | "admin";
   createdAt: string;
   approvedAt?: string;
 }
@@ -45,6 +45,7 @@ export interface Podcast {
   ttsProvider?: string;
   userId?: string;
   estimatedCostUSD?: number;
+  outputDurationSec?: number;
   duration?: string;
   createdAt: string;
   stage?: string;
@@ -111,7 +112,7 @@ export async function createUser(user: Omit<User, "status" | "role" | "createdAt
   const now = new Date().toISOString();
   const newUser: User = {
     ...user,
-    status: "pending",
+    status: "active",
     role: "user",
     createdAt: now,
   };
@@ -175,6 +176,19 @@ export async function suspendUser(userId: string): Promise<void> {
       UpdateExpression: "SET #status = :status",
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: { ":status": "suspended" },
+    })
+  );
+}
+
+export async function setUserRole(userId: string, role: "user" | "creator"): Promise<void> {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE,
+      Key: { PK: `USER#${userId}`, SK: "PROFILE" },
+      UpdateExpression: "SET #role = :role",
+      ConditionExpression: "#role <> :admin",
+      ExpressionAttributeNames: { "#role": "role" },
+      ExpressionAttributeValues: { ":role": role, ":admin": "admin" },
     })
   );
 }
@@ -326,6 +340,7 @@ function itemToPodcast(item: Record<string, unknown>): Podcast {
     ttsProvider: item.ttsProvider as string | undefined,
     userId: item.userId as string | undefined,
     estimatedCostUSD: item.estimatedCostUSD as number | undefined,
+    outputDurationSec: item.outputDurationSec as number | undefined,
     duration: item.duration as string | undefined,
     createdAt: item.createdAt as string || "",
     stage: item.stage as string | undefined,
@@ -336,41 +351,28 @@ function itemToPodcast(item: Record<string, unknown>): Podcast {
 // --- Usage operations ---
 
 export async function getMonthlyUsage(userId: string, month: string): Promise<MonthlyUsage | null> {
-  const result = await ddb.send(
-    new GetCommand({
-      TableName: TABLE,
-      Key: { PK: `USER#${userId}`, SK: `USAGE#${month}` },
-    })
-  );
-  if (!result.Item) return null;
-  return {
-    month,
-    podcastCount: result.Item.podcastCount || 0,
-    totalDurationSec: result.Item.totalDurationSec || 0,
-    totalTTSChars: result.Item.totalTTSChars || 0,
-    totalCostUSD: result.Item.totalCostUSD || 0,
-  };
+  const all = await listMonthlyUsage(userId);
+  return all.find((u) => u.month === month) || null;
 }
 
 export async function listMonthlyUsage(userId: string): Promise<MonthlyUsage[]> {
-  const result = await ddb.send(
-    new QueryCommand({
-      TableName: TABLE,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-      ExpressionAttributeValues: {
-        ":pk": `USER#${userId}`,
-        ":sk": "USAGE#",
-      },
-      ScanIndexForward: false,
-    })
-  );
-  return (result.Items || []).map((item) => ({
-    month: (item.SK as string).replace("USAGE#", ""),
-    podcastCount: item.podcastCount || 0,
-    totalDurationSec: item.totalDurationSec || 0,
-    totalTTSChars: item.totalTTSChars || 0,
-    totalCostUSD: item.totalCostUSD || 0,
-  }));
+  // Compute from actual podcast data (USAGE# records are unreliable)
+  const podcasts = await listUserPodcasts(userId, 200);
+  const byMonth = new Map<string, MonthlyUsage>();
+  for (const p of podcasts) {
+    if (p.status !== "complete" && p.status !== "completed") continue;
+    const month = p.createdAt?.slice(0, 7); // "2026-02"
+    if (!month) continue;
+    let entry = byMonth.get(month);
+    if (!entry) {
+      entry = { month, podcastCount: 0, totalDurationSec: 0, totalTTSChars: 0, totalCostUSD: 0 };
+      byMonth.set(month, entry);
+    }
+    entry.podcastCount++;
+    entry.totalDurationSec += p.outputDurationSec || 0;
+    entry.totalCostUSD += p.estimatedCostUSD || 0;
+  }
+  return Array.from(byMonth.values()).sort((a, b) => b.month.localeCompare(a.month));
 }
 
 export async function listAllUsage(): Promise<(MonthlyUsage & { userId: string })[]> {

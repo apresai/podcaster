@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { auth, canCreate } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { listAPIKeys } from "@/lib/db";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -12,21 +12,20 @@ export default async function CreatePage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const isPending = session.user.status === "pending";
-  const isSuspended = session.user.status === "suspended";
-
-  if (isPending) {
+  if (!canCreate(session.user.role)) {
     return (
       <div className="max-w-lg mx-auto mt-12">
         <Alert>
           <AlertDescription>
-            Your account is pending approval. You will be notified once an
-            administrator reviews your request.
+            Your account has read-only access. Contact an administrator to
+            request creator access.
           </AlertDescription>
         </Alert>
       </div>
     );
   }
+
+  const isSuspended = session.user.status === "suspended";
 
   if (isSuspended) {
     return (
@@ -50,7 +49,7 @@ export default async function CreatePage() {
     return (
       <div className="space-y-8">
         <div>
-          <h1 className="text-3xl font-bold">Create Podcast</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">Create Podcast</h1>
           <p className="mt-1 text-muted-foreground">
             Generate a podcast from any URL or text
           </p>
@@ -79,7 +78,7 @@ export default async function CreatePage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">Create Podcast</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold">Create Podcast</h1>
         <p className="mt-1 text-muted-foreground">
           Generate a podcast from any URL or text
         </p>

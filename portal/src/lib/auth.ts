@@ -60,3 +60,7 @@ export const authConfig: NextAuthConfig = {
 };
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+
+export function canCreate(role: string | undefined): boolean {
+  return role === "creator" || role === "admin";
+}

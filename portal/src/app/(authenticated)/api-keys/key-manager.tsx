@@ -94,7 +94,7 @@ export function APIKeyManager({ initialKeys }: { initialKeys: APIKey[] }) {
           <p className="text-sm font-medium mb-2">
             Your new API key (shown only once):
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <code className="flex-1 rounded bg-white px-3 py-2 text-sm font-mono dark:bg-black break-all">
               {newKey}
             </code>
@@ -168,8 +168,8 @@ export function APIKeyManager({ initialKeys }: { initialKeys: APIKey[] }) {
               <TableHead>Key</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Last used</TableHead>
+              <TableHead className="hidden sm:table-cell">Created</TableHead>
+              <TableHead className="hidden sm:table-cell">Last used</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
@@ -189,10 +189,10 @@ export function APIKeyManager({ initialKeys }: { initialKeys: APIKey[] }) {
                     {key.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-sm">
+                <TableCell className="hidden sm:table-cell text-sm">
                   {formatDate(key.createdAt)}
                 </TableCell>
-                <TableCell className="text-sm">
+                <TableCell className="hidden sm:table-cell text-sm">
                   {key.lastUsedAt ? formatDate(key.lastUsedAt) : "Never"}
                 </TableCell>
                 <TableCell>

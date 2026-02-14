@@ -655,7 +655,7 @@ export function CreatePodcastForm() {
       {status && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center justify-between">
+            <CardTitle className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <span>
                 {status.status === "completed" || status.status === "complete"
                   ? status.title || "Podcast Ready"
