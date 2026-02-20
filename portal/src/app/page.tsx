@@ -3,7 +3,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { WaveformLogo } from "@/components/waveform-logo";
-import { UserPlus, Key, Headphones } from "lucide-react";
+import { UserPlus, Key, Headphones, ListMusic } from "lucide-react";
 
 const features = [
   {
@@ -77,9 +77,17 @@ export default function Home() {
               Podcaster
             </span>
           </div>
-          <Link href="/login">
-            <Button size="sm">Sign in</Button>
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link href="/podcasts">
+              <Button size="sm" variant="ghost" className="text-white/80 hover:text-white hover:bg-white/10">
+                <ListMusic className="size-4 mr-1.5" />
+                Browse
+              </Button>
+            </Link>
+            <Link href="/login">
+              <Button size="sm">Sign in</Button>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -132,13 +140,13 @@ export default function Home() {
                 Get started
               </Button>
             </Link>
-            <Link href="/docs">
+            <Link href="/podcasts">
               <Button
                 size="lg"
                 variant="outline"
                 className="border-white/20 text-white hover:bg-white/10 hover:text-white px-8"
               >
-                View documentation
+                Browse podcasts
               </Button>
             </Link>
           </div>

@@ -38,6 +38,8 @@ async function getTokenEndpoint(): Promise<string> {
   return cachedTokenEndpoint;
 }
 
+const SESSION_MAX_AGE = 90 * 24 * 60 * 60; // 90 days
+
 export const authConfig: NextAuthConfig = {
   trustHost: true,
   providers: [
@@ -50,7 +52,21 @@ export const authConfig: NextAuthConfig = {
   ],
   session: {
     strategy: "jwt",
-    maxAge: 90 * 24 * 60 * 60, // 90 days
+    maxAge: SESSION_MAX_AGE,
+  },
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === "production"
+        ? "__Secure-authjs.session-token"
+        : "authjs.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: SESSION_MAX_AGE,
+      },
+    },
   },
   callbacks: {
     async signIn({ user }) {
