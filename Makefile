@@ -39,6 +39,21 @@ build-proxy:
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -ldflags="-s -w" -o deploy/proxy-build/bootstrap ./cmd/mcp-proxy
 
 docker-build:
+	@# Ensure Docker daemon is running
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "Docker not running — starting Docker Desktop..."; \
+		open -a Docker; \
+		echo "Waiting for Docker daemon..."; \
+		ELAPSED=0; \
+		while ! docker info >/dev/null 2>&1; do \
+			if [ $$ELAPSED -ge 60 ]; then \
+				echo "ERROR: Docker failed to start after 60s"; exit 1; \
+			fi; \
+			sleep 2; \
+			ELAPSED=$$((ELAPSED + 2)); \
+		done; \
+		echo "Docker is ready."; \
+	fi
 	@# Copy SDK into build context temporarily
 	rm -rf deploy/sdk
 	cp -r ../apresai.dev/sdk deploy/sdk

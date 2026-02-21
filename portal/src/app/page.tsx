@@ -141,11 +141,7 @@ export default function Home() {
               </Button>
             </Link>
             <Link href="/podcasts">
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-white/20 text-white hover:bg-white/10 hover:text-white px-8"
-              >
+              <Button size="lg" className="px-8">
                 Browse podcasts
               </Button>
             </Link>
